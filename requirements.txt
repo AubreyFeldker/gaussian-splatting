@@ -1,3 +1,5 @@
 numpy
+numpy-quaternion
 torch
 scipy
+pillow

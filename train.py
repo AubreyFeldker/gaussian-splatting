@@ -1,8 +1,10 @@
 import torch, torch.optim as optim, torch.nn as nn
 import numpy as np
 
-class Gaussians():
+class GaussianModel(nn.Module):
     def __init__(self, var):
+        super().__init__()
+
         self.center = torch.empty(0)
         self.color = torch.empty(0)
         self.scaling = torch.empty(0)
@@ -10,11 +12,15 @@ class Gaussians():
         self.opacity = torch.empty(0)
         self.spherical_harmonics = torch.empty(0)
 
+    def forward(self, camera):
+        
+        pass
+
 def inv_sigmoid(x):
     return torch.log(x / (1-x))     
  
 def gaussian_setup(point_cloud_data):
-    gaussians = Gaussians(0)
+    gaussians = GaussianModel(0)
     point_centers = []
     point_colors = []
 
@@ -33,7 +39,7 @@ def gaussian_setup(point_cloud_data):
 
     gaus_shs = torch.zeros((gaus_colors.shape[0], 3, 9), dtype=torch.float)
     gaus_shs[:, :3, 0] = gaus_colors
-    #gaus_shs[:, 3:, 1:] = 0.0
+    gaus_shs[:, 3:, 1:] = 0.0
 
     # Turn the tensors into specified neural network parameters
     gaussians.color = gaus_colors
@@ -48,7 +54,8 @@ def gaussian_setup(point_cloud_data):
 
     return gaussians
 
-def train(point_cloud_data):
+def train(cameras, images, point_cloud_data, iters=7000):
+    #print(torch.cuda.is_available())
     gaussians = gaussian_setup(point_cloud_data)
 
     model_setup = [
