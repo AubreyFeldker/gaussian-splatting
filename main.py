@@ -1,5 +1,6 @@
-from alt_train import train
+from train import train_model
 from colmap import read_write_model as colmap_rw
+import multiprocessing
 
 if __name__ == "__main__":
     path = "C:/Users/Brooks/Downloads/colmap_db/truck/sparse/0"
@@ -12,5 +13,5 @@ if __name__ == "__main__":
         'rotation': .001
     }
 
-    #print()
-    train(cameras, images, point_cloud, learning_rates)
+    print(multiprocessing.cpu_count())
+    train_model(cameras, images, point_cloud, learning_rates)

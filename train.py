@@ -1,69 +1,56 @@
-import torch, torch.optim as optim, torch.nn as nn
-import numpy as np
+import numpy as np, quaternion
+import math, copy, random
+from scipy.spatial import KDTree
 
-class GaussianModel(nn.Module):
-    def __init__(self, var):
-        super().__init__()
+import forward_pass as forward
 
-        self.center = torch.empty(0)
-        self.color = torch.empty(0)
-        self.scaling = torch.empty(0)
-        self.rotation = torch.empty(0)
-        self.opacity = torch.empty(0)
-        self.spherical_harmonics = torch.empty(0)
+class GaussianSet():
+    def __init__(self, point_cloud_data):  
+        self.center = np.empty([len(point_cloud_data), 3])
+        self.color = np.empty([len(point_cloud_data), 3])         
+        self.spherical_harmonics = np.zeros([len(point_cloud_data), 3, 9])
 
-    def forward(self, camera):
-        
+        i = 0
+        for point in point_cloud_data:
+            self.center[i] = point_cloud_data[point].xyz
+            #print(self.center[i])
+            self.color[i] = (point_cloud_data[point].rgb - .5) / 0.28209479177387814
+            self.spherical_harmonics[i, :3, 0] = self.color[i]
+            i+=1 #bashed my head against the wall for like 10 minutes and it was all ur fault :(
+
+        # Get initial gaussian scaling based on initial point cloud clustering distances
+        distances = np.clip(knn_distances(self.center), a_min=.0000001, a_max=None)
+        self.scaling = np.repeat(distances, 3).reshape((len(point_cloud_data), 3)) 
+
+        self.rotation = np.full((len(point_cloud_data), 4), [1,0,0,0])
+        self.opacity = np.full(len(point_cloud_data), -.9542425) # Precomputed inv_sigmoid(0.1)
+
+    def construct_gaussian():
         pass
 
-def inv_sigmoid(x):
-    return torch.log(x / (1-x))     
- 
-def gaussian_setup(point_cloud_data):
-    gaussians = GaussianModel(0)
-    point_centers = []
-    point_colors = []
+    # Activation functions & inverse activation functions
+    def __sigmoid(x):
+        return 1 / (1 + math.exp(-x))
+    def __inv_sigmoid(x):
+        return math.log(x / (1-x)) 
+    def __elu(x, alpha=1.0):
+        return x if (x >= 0) else alpha * (math.exp(-x) - 1)
+    def __inv_elu(x, alpha=1.0):
+        return 1 if (x >= 0) else alpha * math.exp(x)
 
-    for point in point_cloud_data:
-        point_centers.append(point_cloud_data[point].xyz)
-        point_colors.append((point_cloud_data[point].rgb - .5) / 0.28209479177387814)
+def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
+    gaussians = GaussianSet(point_cloud_data)
 
-    gaus_centers = torch.tensor(point_centers)
-    gaus_colors = torch.tensor(point_colors)
-
-    gaus_scales = torch.full((gaus_centers.shape[0], 3), .05)
-    gaus_rotations = torch.zeros((gaus_centers.shape[0], 4))
-    gaus_rotations[:, 0] = 1
-
-    gaus_opacities = inv_sigmoid(.1 * torch.ones((gaus_centers.shape[0], 1), dtype=torch.float))
-
-    gaus_shs = torch.zeros((gaus_colors.shape[0], 3, 9), dtype=torch.float)
-    gaus_shs[:, :3, 0] = gaus_colors
-    gaus_shs[:, 3:, 1:] = 0.0
-
-    # Turn the tensors into specified neural network parameters
-    gaussians.color = gaus_colors
-
-    gaussians.center = nn.Parameter(gaus_centers.requires_grad_(True))
-    gaussians.scaling = nn.Parameter(gaus_scales.requires_grad_(True))
-    gaussians.rotation = nn.Parameter(gaus_rotations.requires_grad_(True))
-    gaussians.opacity = nn.Parameter(gaus_opacities.requires_grad_(True))
-    gaussians.spherical_harmonics = nn.Parameter(gaus_shs.requires_grad_(True))
-
-    print(gaussians.center.shape)
-
-    return gaussians
-
-def train(cameras, images, point_cloud_data, iters=7000):
-    #print(torch.cuda.is_available())
-    gaussians = gaussian_setup(point_cloud_data)
-
-    model_setup = [
-        {'params': [gaussians.center], 'lr': .00016, "name": "center"},
-        {'params': [gaussians.spherical_harmonics], 'lr': .0025, "name": "sh_features"},
-        {'params': [gaussians.scaling], 'lr': .005, "name": "scaling"},
-        {'params': [gaussians.opacity], 'lr': .05, "name": "opacity"},
-        {'params': [gaussians.rotation], 'lr': .001, "name": "rotation"}
-    ]
+    source_image = random.choice(list(images.items()))[1]
+    chosen_camera = cameras[source_image.camera_id]
+    print(chosen_camera)
     
-    optimizer = optim.Adam(model_setup, lr=0.0)
+    camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
+    camera_t = source_image.tvec
+
+    forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
+
+# Credit to rfeinman on Github for implementation
+def knn_distances(points):
+    distances, inds = KDTree(points).query(points, k=4)
+    return (distances[:, 1:] ** 2).mean(1)
