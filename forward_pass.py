@@ -22,11 +22,12 @@ SH_C3 = np.array([-0.5900435899266435,
 def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], tile_size=16):
     gaus_num = len(gaussians.center)
     mod_covariances = np.zeros([gaus_num, 3])
-    mod_centers = np.zeros_like(gaussians.center)
+    mod_centers = np.zeros([gaus_num, 2])
+    mod_depths = np.zeros(gaus_num)
     mod_colors = np.zeros([gaus_num, 3])
     clamped = np.zeros([gaus_num, 3])
     radii = np.zeros(gaus_num)
-    tiles_touched = np.zeros([gaus_num, 2, 2])
+    tiles_touched = np.zeros([gaus_num, 2, 2], dtype=np.int32)
 
     r = np.transpose(camera_r)
     t = -1 * camera_t
@@ -42,13 +43,14 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
     # this is where we get the covariance & center matrices for each gaussian in coordinance with where the camera is pointing to
     # as well as perform the projection onto them
     for i in range(len(gaussians.center)):
-        view_changed_center = np.pad((r @ gaussians.center[i]) + t, (0,1), 'constant', constant_values=(1.0,))
+        #view_changed_center = np.pad((r @ gaussians.center[i]) + t, (0,1), 'constant', constant_values=(1.0,))
+        view_changed_center = np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
         proj_center = proj_mat @ view_changed_center
         mod_w = 1.0 / (proj_center[3] + .00000001)
-        mod_centers[i] = np.array(proj_center[:3] / mod_w)
+        center = proj_center[:3] / mod_w
 
         # snipe gaussians too close to the camera
-        if((mod_centers[i][2]) < .2):
+        if((center[2]) < .2):
             take_1+=1
             continue
 
@@ -81,15 +83,15 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         lambda2 = middle - math.sqrt(max(.1, middle * middle - det))
         radius = math.ceil(3 * math.sqrt(max(lambda1, lambda2)))
 
-        center_on_screen = [get_pixel(mod_centers[i,0], result_size[0]), get_pixel(mod_centers[i,1], result_size[1])]
+        center_on_screen = [get_pixel(center[0], result_size[0]), get_pixel(center[1], result_size[1])]
         tiles_touched[i] = np.array([
-            [math.floor(min(result_size[0], max(0, center_on_screen[0] - radius)) / tile_size),
-             math.floor(min(result_size[1], max(0, center_on_screen[1] - radius)) / tile_size)],
-            [math.floor(min(result_size[0], max(0, center_on_screen[0] + radius + tile_size - 1)) / tile_size),
-             math.floor(min(result_size[1], max(0, center_on_screen[1] + radius + tile_size - 1)) / tile_size)] 
+            [int(min(result_size[0], max(0, center_on_screen[0] - radius)) / tile_size),
+             int(min(result_size[1], max(0, center_on_screen[1] - radius)) / tile_size)],
+            [int(min(result_size[0], max(0, center_on_screen[0] + radius + tile_size - 1)) / tile_size),
+             int(min(result_size[1], max(0, center_on_screen[1] + radius + tile_size - 1)) / tile_size)] 
         ])
 
-        if ((tiles_touched[i,1,0] - tiles_touched[i,0,0]) * (tiles_touched[i,1,1] - tiles_touched[i,0,1]) == 0):
+        if (center_on_screen[0] + radius < 0 or center_on_screen[0] - radius > result_size[0] or center_on_screen[1] + radius < 0 or center_on_screen[1] - radius > result_size[1]):
             take_2+=1
             continue
 
@@ -97,7 +99,13 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         mod_colors[i], clamped[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
 
         radii[i] = radius
-    return mod_centers, mod_colors, conic, clamped, tiles_touched
+        mod_centers[i] = center_on_screen # screen-based center of the gaussian
+        mod_depths[i] = center[2] # depth value of gaussian center for sorting
+
+    print(zero_dets)
+    print(take_1)
+    print(take_2)
+    return mod_centers, mod_depths, mod_colors, mod_covariances, clamped, tiles_touched, radii
 
 def compute_color(degrees, center, camera_position, sh):
     #Normalized direction to gaus center

@@ -2,7 +2,9 @@ import numpy as np, quaternion
 import math, copy, random
 from scipy.spatial import KDTree
 
-import forward_pass as forward
+import forward_pass as forward, rasterization
+
+from PIL import Image
 
 class GaussianSet():
     def __init__(self, point_cloud_data):  
@@ -23,7 +25,7 @@ class GaussianSet():
         self.scaling = np.repeat(distances, 3).reshape((len(point_cloud_data), 3)) 
 
         self.rotation = np.full((len(point_cloud_data), 4), [1,0,0,0])
-        self.opacity = np.full(len(point_cloud_data), -.9542425) # Precomputed inv_sigmoid(0.1)
+        self.opacity = np.full(len(point_cloud_data), .1) # Precomputed inv_sigmoid(0.1)
 
         self.degrees = 0
 
@@ -43,14 +45,21 @@ class GaussianSet():
 def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
     gaussians = GaussianSet(point_cloud_data)
 
-    source_image = random.choice(list(images.items()))[1]
+    #source_image = random.choice(list(images.items()))[1]
+    source_image = list(images.items())[0][1]
     chosen_camera = cameras[source_image.camera_id]
-    print(chosen_camera)
+    print(source_image)
     
     camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
     camera_t = source_image.tvec
 
-    centers, colors, conics, clampeds, tiles_touched = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
+    centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
+    print("key mapping time")
+    key_mapper = rasterization.match_gaus_to_tiles(tiles_touched, radii, depths)
+    print("rasterization time")
+    image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
+
+    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):
