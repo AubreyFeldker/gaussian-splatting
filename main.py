@@ -1,6 +1,6 @@
 from train import train_model
 from colmap import read_write_model as colmap_rw
-import multiprocessing
+import multiprocessing, time
 
 if __name__ == "__main__":
     path = "C:/Users/Brooks/Downloads/colmap_db/truck/sparse/0"
@@ -14,4 +14,6 @@ if __name__ == "__main__":
     }
 
     print(multiprocessing.cpu_count())
+    t1 = time.perf_counter()
     train_model(cameras, images, point_cloud, learning_rates)
+    print(time.perf_counter() - t1)

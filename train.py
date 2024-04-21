@@ -8,14 +8,14 @@ class GaussianSet():
     def __init__(self, point_cloud_data):  
         self.center = np.empty([len(point_cloud_data), 3])
         self.color = np.empty([len(point_cloud_data), 3])         
-        self.spherical_harmonics = np.zeros([len(point_cloud_data), 3, 9])
+        self.spherical_harmonics = np.zeros([len(point_cloud_data), 16, 3])
 
         i = 0
         for point in point_cloud_data:
             self.center[i] = point_cloud_data[point].xyz
             #print(self.center[i])
             self.color[i] = (point_cloud_data[point].rgb - .5) / 0.28209479177387814
-            self.spherical_harmonics[i, :3, 0] = self.color[i]
+            self.spherical_harmonics[i, 0] = self.color[i]
             i+=1 #bashed my head against the wall for like 10 minutes and it was all ur fault :(
 
         # Get initial gaussian scaling based on initial point cloud clustering distances
@@ -24,6 +24,8 @@ class GaussianSet():
 
         self.rotation = np.full((len(point_cloud_data), 4), [1,0,0,0])
         self.opacity = np.full(len(point_cloud_data), -.9542425) # Precomputed inv_sigmoid(0.1)
+
+        self.degrees = 0
 
     def construct_gaussian():
         pass

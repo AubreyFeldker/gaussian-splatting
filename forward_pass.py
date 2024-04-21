@@ -18,7 +18,7 @@ SH_C3 = np.array([-0.5900435899266435,
 	-0.5900435899266435])
 
 # can definitely multiproc this later
-def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[1280,720]):
+def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546]):
     gaus_num = len(gaussians.center)
     mod_covariances = np.zeros([gaus_num, 3])
     mod_centers = np.zeros_like(gaussians.center)
@@ -46,7 +46,6 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[1280,720]):
 
         # snipe gaussians too close to the camera
         if((mod_centers[i][2]) < .2):
-            
             continue
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
@@ -79,7 +78,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[1280,720]):
         radius = math.ceil(3 * math.sqrt(max(lambda1, lambda2)))
 
         center_on_screen = [get_pixel(mod_centers[i,0], result_size[0]), get_pixel(mod_centers[i,1], result_size[1])]
-        if(center_on_screen[0] >= 0 and center_on_screen[0] < result_size[0] and center_on_screen[1] >= 0 and center_on_screen[1] < result_size[1]):
+        if(center_on_screen[0] + radius >= 0 and center_on_screen[0] - radius < result_size[0] and center_on_screen[1] + radius >= 0 and center_on_screen[1] - radius < result_size[1]):
             zero_dets+=1
 
         mod_colors[i], clamped[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
@@ -91,8 +90,6 @@ def compute_color(degrees, center, camera_position, sh):
     direction = center - camera_position
     direction = direction/np.linalg.norm(direction) 
     result = SH_C0 * sh[0]
-
-    
 
     if (degrees > 0):
         x = direction[0]
@@ -108,10 +105,20 @@ def compute_color(degrees, center, camera_position, sh):
             yz = y * z
             xz = x * z
 
-            result += SH_C2[0] * xy * sh[4] + SH_C2[1] * yz * sh[5] + SH_C2[2] * (2.0 * zz - xx - yy) * sh[6] + SH_C2[3] * xz * sh[7] + SH_C2[4] * (xx - yy) * sh[8]
+            result += (SH_C2[0] * xy * sh[4] +
+                       SH_C2[1] * yz * sh[5] +
+                       SH_C2[2] * (2.0 * zz - xx - yy) * sh[6] +
+                       SH_C2[3] * xz * sh[7] +
+                       SH_C2[4] * (xx - yy) * sh[8])
 
             if (degrees > 2):
-                result += SH_C3[0] * y * (3.0 * xx - yy) * sh[9] + SH_C3[1] * xy * z * sh[10] + SH_C3[2] * y * (4.0 * zz - xx - yy) * sh[11] + SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * sh[12]+ SH_C3[4] * x * (4.0 * zz - xx - yy) * sh[13] + SH_C3[5] * z * (xx - yy) * sh[14] + SH_C3[6] * x * (xx - 3.0 * yy) * sh[15]
+                result += (SH_C3[0] * y * (3.0 * xx - yy) * sh[9] +
+                SH_C3[1] * xy * z * sh[10] +
+                SH_C3[2] * y * (4.0 * zz - xx - yy) * sh[11] +
+                SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * sh[12]+
+                SH_C3[4] * x * (4.0 * zz - xx - yy) * sh[13] +
+                SH_C3[5] * z * (xx - yy) * sh[14] +
+                SH_C3[6] * x * (xx - 3.0 * yy) * sh[15])
 
     result += np.array([.5,.5,.5])
 
