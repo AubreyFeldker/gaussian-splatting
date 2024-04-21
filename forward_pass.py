@@ -18,14 +18,15 @@ SH_C3 = np.array([-0.5900435899266435,
 	-0.5900435899266435])
 
 # can definitely multiproc this later
-def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546]):
+# update: lol. lmao
+def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], tile_size=16):
     gaus_num = len(gaussians.center)
     mod_covariances = np.zeros([gaus_num, 3])
     mod_centers = np.zeros_like(gaussians.center)
     mod_colors = np.zeros([gaus_num, 3])
     clamped = np.zeros([gaus_num, 3])
     radii = np.zeros(gaus_num)
-    tiles_touched = np.zeros(gaus_num)
+    tiles_touched = np.zeros([gaus_num, 2, 2])
 
     r = np.transpose(camera_r)
     t = -1 * camera_t
@@ -35,6 +36,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546]):
     proj_mat = get_projection_matrix(fov_x, fov_y)
 
     zero_dets = 0
+    take_1 = 0
+    take_2 = 0
 
     # this is where we get the covariance & center matrices for each gaussian in coordinance with where the camera is pointing to
     # as well as perform the projection onto them
@@ -46,6 +49,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546]):
 
         # snipe gaussians too close to the camera
         if((mod_centers[i][2]) < .2):
+            take_1+=1
             continue
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
@@ -78,12 +82,22 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546]):
         radius = math.ceil(3 * math.sqrt(max(lambda1, lambda2)))
 
         center_on_screen = [get_pixel(mod_centers[i,0], result_size[0]), get_pixel(mod_centers[i,1], result_size[1])]
-        if(center_on_screen[0] + radius >= 0 and center_on_screen[0] - radius < result_size[0] and center_on_screen[1] + radius >= 0 and center_on_screen[1] - radius < result_size[1]):
-            zero_dets+=1
+        tiles_touched[i] = np.array([
+            [math.floor(min(result_size[0], max(0, center_on_screen[0] - radius)) / tile_size),
+             math.floor(min(result_size[1], max(0, center_on_screen[1] - radius)) / tile_size)],
+            [math.floor(min(result_size[0], max(0, center_on_screen[0] + radius + tile_size - 1)) / tile_size),
+             math.floor(min(result_size[1], max(0, center_on_screen[1] + radius + tile_size - 1)) / tile_size)] 
+        ])
 
+        if ((tiles_touched[i,1,0] - tiles_touched[i,0,0]) * (tiles_touched[i,1,1] - tiles_touched[i,0,1]) == 0):
+            take_2+=1
+            continue
+
+        zero_dets+=1
         mod_colors[i], clamped[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
 
-    print(zero_dets)
+        radii[i] = radius
+    return mod_centers, mod_colors, conic, clamped, tiles_touched
 
 def compute_color(degrees, center, camera_position, sh):
     #Normalized direction to gaus center

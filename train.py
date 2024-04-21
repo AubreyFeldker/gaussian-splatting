@@ -50,7 +50,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
     camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
     camera_t = source_image.tvec
 
-    forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
+    centers, colors, conics, clampeds, tiles_touched = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):
