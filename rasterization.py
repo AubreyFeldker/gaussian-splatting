@@ -1,4 +1,5 @@
 import numpy as np, math
+from ctypes import *
 
 def match_gaus_to_tiles(tiles_touched, radiis, depths, result_size=[979,546], tile_size=16):
     hor_tiles = math.ceil(result_size[0] * 1.0 / tile_size)
@@ -14,6 +15,32 @@ def match_gaus_to_tiles(tiles_touched, radiis, depths, result_size=[979,546], ti
                 key_mapper[i][j][depths[gaus]] = gaus
 
     return key_mapper
+
+def c_rasterize(centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, conics: np.ndarray, mapped_keys,
+              training=True, result_size=[979,546], tile_size=16, background_color=np.zeros(3)):
+
+    FUNC = CDLL("./shared.so")
+    FUNC.rasterize_tile.argtypes = [np.ctypeslib.ndpointer(dtype=np.float64, ndim=3, flags='C_CONTIGUOUS'), #image
+                                    np.ctypeslib.ndpointer(dtype=np.int32, ndim=2, flags='C_CONTIGUOUS'), #last_contributors
+                                    np.ctypeslib.ndpointer(dtype=np.float64, ndim=2, flags='C_CONTIGUOUS'), # centers
+                                    np.ctypeslib.ndpointer(dtype=np.float64, ndim=2, flags='C_CONTIGUOUS'), # colors
+                                    np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS'), # opacities
+                                    np.ctypeslib.ndpointer(dtype=np.float64, ndim=2, flags='C_CONTIGUOUS'), # conics
+                                    np.ctypeslib.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS'), # depth_sorted_gaus
+                                    np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags='C_CONTIGUOUS') # background_color
+                                    ]
+    image = np.empty([result_size[0], result_size[1], 3])
+    image_chunk = np.empty([tile_size, tile_size, 3])
+    last_contributors = np.zeros([tile_size, tile_size], dtype=np.int32)
+
+    hor_tiles = math.ceil(result_size[0] / tile_size)
+    ver_tiles = math.ceil(result_size[1] / tile_size)
+
+    for i in range(hor_tiles):
+        for j in range(ver_tiles):
+
+            depth_sorted_gaus = np.ascontiguousarray(np.asarray(sorted(mapped_keys[0][0].items()), dtype=np.int32)[...,1]) # flatten the dictionary to a depth-sorted 1D array
+            FUNC.rasterize_tile(image_chunk, last_contributors, centers, colors, opacities, conics, depth_sorted_gaus, background_color, len(depth_sorted_gaus), training, result_size[0], result_size[1])
 
 def rasterize(centers, colors, opacities, conics, mapped_keys,
               training=True, result_size=[979,546], tile_size=16, background_color=np.zeros(3)):
@@ -75,6 +102,5 @@ def rasterize(centers, colors, opacities, conics, mapped_keys,
 
     return image
 
-
-
-
+last_contributors = np.zeros((4), dtype=np.int32)
+print(last_contributors[0])

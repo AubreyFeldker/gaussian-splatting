@@ -27,19 +27,6 @@ class GaussianSet():
 
         self.degrees = 0
 
-    def construct_gaussian():
-        pass
-
-    # Activation functions & inverse activation functions
-    def __sigmoid(x):
-        return 1 / (1 + math.exp(-x))
-    def __inv_sigmoid(x):
-        return math.log(x / (1-x)) 
-    def __elu(x, alpha=1.0):
-        return x if (x >= 0) else alpha * (math.exp(-x) - 1)
-    def __inv_elu(x, alpha=1.0):
-        return 1 if (x >= 0) else alpha * math.exp(x)
-
 def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
     gaussians = GaussianSet(point_cloud_data)
 
@@ -52,14 +39,34 @@ def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
     camera_t = source_image.tvec
 
     centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
+    filter_arr = []
+    for element in depths:
+        filter_arr.append(True if (element <= .02 and element != 0) else False)
+
+    print(len(depths))
+    print(len(depths[filter_arr]))
+
     print("key mapping time")
     key_mapper = rasterization.match_gaus_to_tiles(tiles_touched, radii, depths)
     print("rasterization time")
-    image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
+    rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
 
-    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_2.jpg")
+    #print(centers)
+    #image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
+
+    #Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_2.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):
     distances, inds = KDTree(points).query(points, k=4)
     return (distances[:, 1:] ** 2).mean(1)
+
+# Activation functions & inverse activation functions
+def __sigmoid(x):
+    return 1 / (1 + math.exp(-x))
+def __inv_sigmoid(x):
+    return math.log(x / (1-x)) 
+def __elu(x, alpha=1.0):
+    return x if (x >= 0) else alpha * (math.exp(-x) - 1)
+def __inv_elu(x, alpha=1.0):
+    return 1 if (x >= 0) else alpha * math.exp(x)

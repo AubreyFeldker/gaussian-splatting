@@ -51,7 +51,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         # snipe gaussians too close to the camera
         depth = (r @ center + t)[2]
-        if(depth < .2):
+        if(depth <= .02):
             take_1+=1
             continue
 
@@ -103,7 +103,6 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
-        mod_depths[i] = center[2] # depth value of gaussian center for sorting
 
     print(zero_dets)
     print(take_1)
