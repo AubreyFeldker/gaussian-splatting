@@ -35,6 +35,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
     fov_x = focal_to_fov(camera.params[0], camera.width)
     fov_y = focal_to_fov(camera.params[1], camera.height)
     proj_mat = get_projection_matrix(fov_x, fov_y)
+    view_mat = get_view_matrix(r, t)
 
     zero_dets = 0
     take_1 = 0
@@ -47,22 +48,23 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         view_changed_center = np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
         proj_center = proj_mat @ view_changed_center
         mod_w = 1.0 / (proj_center[3] + .00000001)
-        center = proj_center[:3] / mod_w
+        center = proj_center / mod_w
 
         # snipe gaussians too close to the camera
-        depth = (r @ center + t)[2]
-        if(depth <= .02):
+        view_adj_center = view_mat @ center
+        if(view_adj_center[2] <= .02):
             take_1+=1
             continue
 
-        mod_depths[i] = depth
+        mod_depths[i] = view_adj_center[2]
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
         rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))
         M = rot_matrix @ gaussians.scaling[i][:, np.newaxis]
         cov_matrix =  M @ np.transpose(M)
 
-        j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], proj_center)
+        #TODO: this works right??
+        j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], (r @ gaussians.center[i]) + t)
         W = j_matrix @ r
         cov_2d = W @ cov_matrix @ np.transpose(W)
         cov_2d_vals = [cov_2d[0,0], cov_2d[0,1],cov_2d[1,1]]
@@ -176,10 +178,17 @@ def get_projection_matrix(fov_x, fov_y, z_near = .01, z_far = 100):
 
     return proj
 
+def get_view_matrix(r, t):
+    view_matrix = np.zeros((4,4))
+    view_matrix[:3,:3] = r
+    view_matrix[3,:3] = t
+    view_matrix[3,3] = 1.0
+
 def get_jacobian_matrix(fov_x, fov_y, focal_x, focal_y, center):
     lim_x = 1.3 * math.tan(fov_x/2)
     lim_y = 1.3 * math.tan(fov_y/2)
-    mathed_center = np.array([min(lim_x, max(-lim_x, center[0]/center[2])) * center[2], min(lim_y, max(-lim_y, center[1]/center[2])) * center[2], center[2]])
+    mathed_center = np.array([min(lim_x, max(-lim_x, center[0]/center[2])) * center[2],
+                              min(lim_y, max(-lim_y, center[1]/center[2])) * center[2], center[2]])
 
     return np.matrix([
         [focal_x / mathed_center[2], 0.0, -(focal_x * mathed_center[0]) / (mathed_center[2] * mathed_center[2])],

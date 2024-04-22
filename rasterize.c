@@ -10,4 +10,5 @@ float rasterize_tile(double image_chunk[TILE_SIZE][TILE_SIZE][3], int last_contr
     centers[0][0] = .12;
     
     return centers[0][0];
+    // TODO: implement the c based tile rasterizer
 }

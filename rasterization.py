@@ -102,5 +102,3 @@ def rasterize(centers, colors, opacities, conics, mapped_keys,
 
     return image
 
-last_contributors = np.zeros((4), dtype=np.int32)
-print(last_contributors[0])
