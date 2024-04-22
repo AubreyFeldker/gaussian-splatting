@@ -30,7 +30,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
     tiles_touched = np.zeros([gaus_num, 2, 2], dtype=np.int32)
 
     r = np.transpose(camera_r)
-    t = -1 * camera_t
+    t = camera_t
 
     fov_x = focal_to_fov(camera.params[0], camera.width)
     fov_y = focal_to_fov(camera.params[1], camera.height)
@@ -50,9 +50,12 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         center = proj_center[:3] / mod_w
 
         # snipe gaussians too close to the camera
-        if((center[2]) < .2):
+        depth = (r @ center + t)[2]
+        if(depth < .2):
             take_1+=1
             continue
+
+        mod_depths[i] = depth
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
         rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))

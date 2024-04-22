@@ -71,7 +71,7 @@ def rasterize(centers, colors, opacities, conics, mapped_keys,
                         T = test_T
                     last_contributors[curr_x,curr_y] = contributor
                     image[curr_x,curr_y] = color + background_color * T
-                    print('%2d percent done with rasterization' % math.floor(100.0 * (curr_x * result_size[1] + curr_y) / (result_size[0] * result_size[1])), end='\r')
+            print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
 
     return image
 

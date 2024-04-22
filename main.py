@@ -16,4 +16,5 @@ if __name__ == "__main__":
     print(multiprocessing.cpu_count())
     t1 = time.perf_counter()
     train_model(cameras, images, point_cloud, learning_rates)
+    print()
     print(time.perf_counter() - t1)

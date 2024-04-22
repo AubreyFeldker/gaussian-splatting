@@ -1,9 +1,7 @@
 import numpy as np, quaternion
-import math, copy, random
+import math, copy, random, ctypes
 from scipy.spatial import KDTree
-
 import forward_pass as forward, rasterization
-
 from PIL import Image
 
 class GaussianSet():
@@ -59,7 +57,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
     print("rasterization time")
     image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
 
-    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result.jpg")
+    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_2.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):
