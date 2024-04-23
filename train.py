@@ -27,18 +27,18 @@ class GaussianSet():
 
         self.degrees = 0
 
-def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
+def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000, result_size=[490,273]):
     gaussians = GaussianSet(point_cloud_data)
 
     #source_image = random.choice(list(images.items()))[1]
     source_image = list(images.items())[0][1]
     chosen_camera = cameras[source_image.camera_id]
-    print(source_image)
+    #print(source_image)
     
     camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
     camera_t = source_image.tvec
 
-    centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians)
+    centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size)
     filter_arr = []
     for element in depths:
         filter_arr.append(True if (element <= .02 and element != 0) else False)
@@ -52,9 +52,9 @@ def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000):
     rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
 
     #print(centers)
-    #image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
+    image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
 
-    #Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_2.jpg")
+    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_3.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):

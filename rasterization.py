@@ -31,7 +31,8 @@ def c_rasterize(centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, 
                                     ]
     image = np.empty([result_size[0], result_size[1], 3])
     image_chunk = np.empty([tile_size, tile_size, 3])
-    last_contributors = np.zeros([tile_size, tile_size], dtype=np.int32)
+    last_contributors = np.empty([result_size[0], result_size[1]], dtype=np.int32)
+    last_contributors_chunk = np.empty([tile_size, tile_size], dtype=np.int32)
 
     hor_tiles = math.ceil(result_size[0] / tile_size)
     ver_tiles = math.ceil(result_size[1] / tile_size)
@@ -40,7 +41,19 @@ def c_rasterize(centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, 
         for j in range(ver_tiles):
 
             depth_sorted_gaus = np.ascontiguousarray(np.asarray(sorted(mapped_keys[0][0].items()), dtype=np.int32)[...,1]) # flatten the dictionary to a depth-sorted 1D array
-            FUNC.rasterize_tile(image_chunk, last_contributors, centers, colors, opacities, conics, depth_sorted_gaus, background_color, len(depth_sorted_gaus), training, result_size[0], result_size[1])
+            FUNC.rasterize_tile(image_chunk, last_contributors_chunk, centers, colors, opacities, conics,
+                                depth_sorted_gaus, background_color, len(depth_sorted_gaus), training, i, j, result_size[0], result_size[1])
+            
+            last_x = min((i+1)*tile_size,result_size[0])
+            last_y = min((j+1)*tile_size,result_size[1])
+            chunk_x = min(tile_size, result_size[0]-i*tile_size)
+            chunk_y = min(tile_size, result_size[1]-j*tile_size)
+            image[i*tile_size:last_x, j*tile_size:last_y] = image_chunk[:chunk_x,:chunk_y]
+            last_contributors[i*tile_size:last_x, j*tile_size:last_y] = last_contributors_chunk[:chunk_x,:chunk_y]
+
+            print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
+
+    return image
 
 def rasterize(centers, colors, opacities, conics, mapped_keys,
               training=True, result_size=[979,546], tile_size=16, background_color=np.zeros(3)):

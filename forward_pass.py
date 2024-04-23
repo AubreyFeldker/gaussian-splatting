@@ -52,7 +52,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         # snipe gaussians too close to the camera
         view_adj_center = view_mat @ center
-        if(view_adj_center[2] <= .02):
+        if(view_adj_center[2] <= .2):
             take_1+=1
             continue
 
@@ -106,9 +106,9 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
 
-    print(zero_dets)
-    print(take_1)
-    print(take_2)
+    #print(zero_dets)
+    #print(take_1)
+    #print(take_2)
     return mod_centers, mod_depths, mod_colors, mod_covariances, clamped, tiles_touched, radii
 
 def compute_color(degrees, center, camera_position, sh):
@@ -159,7 +159,7 @@ def compute_color(degrees, center, camera_position, sh):
 
 
 def get_view_matrix(r, t):
-    view_mat = np.zeros((4,4))
+    view_mat = np.zeros([4,4])
     view_mat[:3,:3] = np.transpose(r)
     view_mat[:3,3] = t
     view_mat[3,3] = 1.0
@@ -177,12 +177,6 @@ def get_projection_matrix(fov_x, fov_y, z_near = .01, z_far = 100):
     proj[3,2] = 1.0
 
     return proj
-
-def get_view_matrix(r, t):
-    view_matrix = np.zeros((4,4))
-    view_matrix[:3,:3] = r
-    view_matrix[3,:3] = t
-    view_matrix[3,3] = 1.0
 
 def get_jacobian_matrix(fov_x, fov_y, focal_x, focal_y, center):
     lim_x = 1.3 * math.tan(fov_x/2)
