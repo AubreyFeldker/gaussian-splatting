@@ -92,19 +92,25 @@ DWORD WINAPI thread_rasterize(LPVOID param) {
         T = 1.0;
         color = p_image_chunk[loc_x][loc_y];
 
+        for(int ch = 0; ch < CHANNELS; ch++) {
+                p_image_chunk[loc_x][loc_y][ch] = 0.0;
+            }
+
         for (int i = 0; i < p_stack_size; i++) {
             contributor++;
             gaus = p_gaus_stack[i];
 
-            dist_x = p_centers[gaus][0] - x + .5;
-            dist_y = p_centers[gaus][1] - y + .5;
+            dist_x = p_centers[gaus][0] - ((double) x) + .5;
+            dist_y = p_centers[gaus][1] - ((double) y) + .5;
+
+            //printf("%f %f\n", p_centers[gaus][0], p_centers[gaus][1]);
 
             power = -.5 * (p_conics[gaus][0] * dist_x * dist_x + p_conics[gaus][2] * dist_y * dist_y) - p_conics[gaus][1] * dist_x * dist_y;
-
             if (power > 0)
                 continue;
 
             alpha = fmin(.99, p_opacities[gaus] * exp(power));
+            
             if (alpha < (1.0/255))
                 continue;
 
@@ -113,13 +119,13 @@ DWORD WINAPI thread_rasterize(LPVOID param) {
                 break;
 
             for(int ch = 0; ch < CHANNELS; ch++) {
-                color[ch] += p_colors[gaus][ch] * alpha * T;
+                p_image_chunk[loc_x][loc_y][ch] += p_colors[gaus][ch] * alpha * T;
             }
             T = test_T;
         }
-
+        
         for(int ch = 0; ch < CHANNELS; ch++) {
-                color[ch] += color[ch] + p_background_color[ch] * T;
+                p_image_chunk[loc_x][loc_y][ch] = p_image_chunk[loc_x][loc_y][ch] + p_background_color[ch] * T;
             }
         p_last_contributors[loc_x][loc_y] = contributor;
     }

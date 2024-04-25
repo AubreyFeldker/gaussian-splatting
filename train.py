@@ -20,14 +20,15 @@ class GaussianSet():
 
         # Get initial gaussian scaling based on initial point cloud clustering distances
         distances = np.clip(knn_distances(self.center), a_min=.0000001, a_max=None)
-        self.scaling = np.repeat(distances, 3).reshape((len(point_cloud_data), 3)) 
+        self.scaling = np.repeat(np.log(distances), 3).reshape((len(point_cloud_data), 3)) 
 
-        self.rotation = np.full((len(point_cloud_data), 4), [1,0,0,0])
+        self.rotation = np.full((len(point_cloud_data), 4), [0,0,0,1])
+        #TODO: computer proper sigmoidation
         self.opacity = np.full(len(point_cloud_data), .1) # Precomputed inv_sigmoid(0.1)
 
         self.degrees = 0
 
-def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000, result_size=[490,273]):
+def train_model(cameras, images, point_cloud_data, learning_rates, ctx, iters=7000, result_size=[979,546]):
     gaussians = GaussianSet(point_cloud_data)
 
     #source_image = random.choice(list(images.items()))[1]
@@ -38,23 +39,20 @@ def train_model(cameras, images, point_cloud_data, learning_rates, iters=7000, r
     camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
     camera_t = source_image.tvec
 
+    print("forward pass time")
     centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size)
     filter_arr = []
     for element in depths:
         filter_arr.append(True if (element <= .02 and element != 0) else False)
 
-    print(len(depths))
-    print(len(depths[filter_arr]))
-
     print("key mapping time")
     key_mapper = rasterization.match_gaus_to_tiles(tiles_touched, radii, depths)
     print("rasterization time")
-    rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper)
+    image = rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
 
-    #print(centers)
-    image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
+    #image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
 
-    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_3.jpg")
+    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_7.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):

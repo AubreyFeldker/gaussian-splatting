@@ -1,6 +1,6 @@
 from train import train_model
 from colmap import read_write_model as colmap_rw
-import multiprocessing, time
+import pyopencl as cl, time
 
 if __name__ == "__main__":
     path = "C:/Users/Brooks/Downloads/colmap_db/truck/sparse/0"
@@ -13,8 +13,10 @@ if __name__ == "__main__":
         'rotation': .001
     }
 
-    print(multiprocessing.cpu_count())
+    #ctx = cl.create_some_context()
+    ctx = 0
+
     t1 = time.perf_counter()
-    train_model(cameras, images, point_cloud, learning_rates)
+    train_model(cameras, images, point_cloud, learning_rates, ctx)
     print()
     print(time.perf_counter() - t1)

@@ -41,6 +41,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
     take_1 = 0
     take_2 = 0
 
+    activated_scales = np.exp(gaussians.scaling)
+
     # this is where we get the covariance & center matrices for each gaussian in coordinance with where the camera is pointing to
     # as well as perform the projection onto them
     for i in range(len(gaussians.center)):
@@ -60,11 +62,10 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
         rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))
-        M = rot_matrix @ gaussians.scaling[i][:, np.newaxis]
+        M = rot_matrix @ activated_scales[i][:, np.newaxis]
         cov_matrix =  M @ np.transpose(M)
 
-        #TODO: this works right??
-        j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], (r @ gaussians.center[i]) + t)
+        j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], view_mat @ np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,)))
         W = j_matrix @ r
         cov_2d = W @ cov_matrix @ np.transpose(W)
         cov_2d_vals = [cov_2d[0,0], cov_2d[0,1],cov_2d[1,1]]
@@ -77,6 +78,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         #invert covariance
         det = (cov_2d_vals[0] * cov_2d_vals[2] - cov_2d_vals[1] * cov_2d_vals[1])
+        if (det == 0):
+            continue
         det_inv = 1.0 / det
         conic = [cov_2d_vals[2] * det_inv, -cov_2d_vals[1] * det_inv, cov_2d_vals[0] * det_inv]
 
