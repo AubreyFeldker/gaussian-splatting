@@ -1,5 +1,5 @@
 import numpy as np, quaternion
-import math, copy, random, ctypes
+import math, time
 from scipy.spatial import KDTree
 import forward_pass as forward, rasterization
 from PIL import Image
@@ -28,7 +28,7 @@ class GaussianSet():
 
         self.degrees = 0
 
-def train_model(cameras, images, point_cloud_data, learning_rates, ctx, iters=7000, result_size=[979,546]):
+def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, queue = None, program = None, iters=7000, result_size=[979,546]):
     gaussians = GaussianSet(point_cloud_data)
 
     #source_image = random.choice(list(images.items()))[1]
@@ -39,19 +39,22 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx, iters=70
     camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
     camera_t = source_image.tvec
 
-    print("forward pass time")
+    t1 = time.perf_counter()
+    
     centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size)
-    filter_arr = []
-    for element in depths:
-        filter_arr.append(True if (element <= .02 and element != 0) else False)
-
-    print("key mapping time")
+    print("forward pass complete in {time}s".format(time=time.perf_counter()-t1))
+    t1 = time.perf_counter()
+    
     key_mapper = rasterization.match_gaus_to_tiles(tiles_touched, radii, depths)
-    print("rasterization time")
-    image = rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
+    t2 = time.perf_counter()
+    print("key mapping complete in {time}s".format(time=t2-t1))
+    
 
+    image = rasterization.gpu_rasterize(ctx, queue, program, centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
+    #image = rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
     #image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
 
+    print("rasterization complete in {time}s".format(time=time.perf_counter()-t2))
     Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_7.jpg")
 
 # Credit to rfeinman on Github for implementation

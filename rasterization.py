@@ -17,13 +17,66 @@ def match_gaus_to_tiles(tiles_touched, radiis, depths, result_size=[979,546], ti
 
     return key_mapper
 
-def gpu_rasterize(centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, conics: np.ndarray, mapped_keys,
+def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, conics: np.ndarray, mapped_keys,
               training=True, result_size=[979,546], tile_size=16, background_color=np.zeros(3)):
     image = np.zeros([result_size[0], result_size[1], 3])
-    image_chunk = np.empty([tile_size * tile_size * 3])
+    image_chunk = np.empty([tile_size, tile_size, 3])
     last_contributors = np.empty([result_size[0], result_size[1]], dtype=np.int32)
-    last_contributors_chunk = np.empty([tile_size * tile_size], dtype=np.int32)
-    pass
+    last_contributors_chunk = np.empty([tile_size, tile_size], dtype=np.int32)
+
+    other_data = np.empty(6, dtype=np.int32)
+    other_data[1] = 1 if (training) else 0
+    other_data[4] = result_size[0]
+    other_data[5] = result_size[1]
+
+    mf = cl.mem_flags
+    centers_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=centers.flatten())
+    colors_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=colors.flatten())
+    opacities_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=opacities)
+    conics_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=conics.flatten())
+    background_color_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=background_color)
+
+    image_g = cl.Buffer(ctx, mf.WRITE_ONLY, image_chunk.nbytes)
+    contributors_g = cl.Buffer(ctx, mf.WRITE_ONLY, last_contributors_chunk.nbytes)
+
+    hor_tiles = math.ceil(result_size[0] / tile_size)
+    ver_tiles = math.ceil(result_size[1] / tile_size)
+
+    for i in range(hor_tiles):
+        for j in range(ver_tiles):
+            depth_sorted = np.asarray(sorted(mapped_keys[i][j].items()), dtype=np.int32)
+            if (len(depth_sorted > 0)):
+                depth_sorted_gaus = np.ascontiguousarray(depth_sorted[...,1]) # flatten the dictionary to a depth-sorted 1D array
+                other_data[0] = len(depth_sorted_gaus)
+            else:
+                depth_sorted_gaus = np.zeros(1, dtype=np.int32)
+                other_data[0] = 0
+       
+            other_data[2] = i * tile_size
+            other_data[3] = j * tile_size
+
+            gaus_stack_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=depth_sorted_gaus)
+            other_data_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=other_data)
+
+            program.rasterize(queue, np.arange(16*16).shape, None,
+                              centers_g, colors_g, opacities_g, conics_g, gaus_stack_g, background_color_g, other_data_g,
+                              image_g, contributors_g)
+            
+            last_x = min((i+1)*tile_size,result_size[0])
+            last_y = min((j+1)*tile_size,result_size[1])
+            chunk_x = min(tile_size, result_size[0]-i*tile_size)
+            chunk_y = min(tile_size, result_size[1]-j*tile_size)
+
+            cl.enqueue_copy(queue, image_chunk, image_g)
+            cl.enqueue_copy(queue, last_contributors_chunk, contributors_g)
+
+            #print(image_chunk)
+
+            image[i*tile_size:last_x, j*tile_size:last_y] = copy.deepcopy(image_chunk[:chunk_x,:chunk_y])
+            last_contributors[i*tile_size:last_x, j*tile_size:last_y] = copy.deepcopy(last_contributors_chunk[:chunk_x,:chunk_y])
+
+            print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
+    return image
 
 def c_rasterize(centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, conics: np.ndarray, mapped_keys,
               training=True, result_size=[979,546], tile_size=16, background_color=np.zeros(3, dtype=np.float64)):

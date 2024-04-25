@@ -3,3 +3,4 @@ numpy-quaternion
 torch
 scipy
 pillow
+pyopencl

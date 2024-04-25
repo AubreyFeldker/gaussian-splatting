@@ -1,6 +1,7 @@
 from train import train_model
+from setup_gpu import setup_gpu
 from colmap import read_write_model as colmap_rw
-import pyopencl as cl, time
+import pyopencl as cl, time, os
 
 if __name__ == "__main__":
     path = "C:/Users/Brooks/Downloads/colmap_db/truck/sparse/0"
@@ -13,10 +14,8 @@ if __name__ == "__main__":
         'rotation': .001
     }
 
-    #ctx = cl.create_some_context()
-    ctx = 0
+    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+    os.environ['PYOPENCL_CTX'] = '0'
+    ctx, queue, program = setup_gpu()
 
-    t1 = time.perf_counter()
-    train_model(cameras, images, point_cloud, learning_rates, ctx)
-    print()
-    print(time.perf_counter() - t1)
+    train_model(cameras, images, point_cloud, learning_rates, ctx, queue, program)
