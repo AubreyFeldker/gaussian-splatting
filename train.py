@@ -50,7 +50,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
     print("key mapping complete in {time}s".format(time=t2-t1))
     
 
-    image = rasterization.gpu_rasterize(ctx, queue, program, centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
+    image, d_colors, d_centers, d_conics, d_opacity = rasterization.gpu_rasterize(ctx, queue, program, centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size, training=True)
     #image = rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
     #image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
 
