@@ -80,21 +80,16 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             chunk_y = min(tile_size, result_size[1]-j*tile_size)
 
             cl.enqueue_copy(queue, image_chunk, image_g)
-
-            if(training):
-                cl.enqueue_copy(queue, d_colors_temp, d_colors_g)
-                cl.enqueue_copy(queue, d_centers_temp, d_centers_g)
-                cl.enqueue_copy(queue, d_conics_temp, d_conics_g)
-                cl.enqueue_copy(queue, d_opacity_temp, d_opacity_g)
-
-                d_colors += d_colors_temp
-                d_centers += d_centers_temp
-                d_conics += d_conics_temp
-                d_opacity += d_opacity_temp
-
+            
             image[i*tile_size:last_x, j*tile_size:last_y] = copy.deepcopy(image_chunk[:chunk_x,:chunk_y])
 
             print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
+    if(training):
+        cl.enqueue_copy(queue, d_colors, d_colors_g)
+        cl.enqueue_copy(queue, d_centers, d_centers_g)
+        cl.enqueue_copy(queue, d_conics, d_conics_g)
+        cl.enqueue_copy(queue, d_opacity, d_opacity_g)
+    
     return image, d_colors, d_centers, d_conics, d_opacity
 
 def c_rasterize(centers: np.ndarray, colors: np.ndarray, opacities: np.ndarray, conics: np.ndarray, mapped_keys,
