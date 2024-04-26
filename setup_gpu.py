@@ -9,17 +9,15 @@ def setup_gpu():
     void atomicAdd_g_f(volatile __global double *addr, double val)
     {
         union {
-            unsigned int u32_a;
-            unsigned int u32_b;
+            unsigned long u64;
             double f64;
             } next, expected, current;
         current.f64 = *addr;
         do {
             expected.f64 = current.f64;
             next.f64 = expected.f64 + val;
-            current.u32_a = atomic_cmpxchg( (volatile __global unsigned int *)addr, expected.u32_a, next.u32_a);
-            current.u32_b = atomic_cmpxchg( (volatile __global unsigned int *)addr+32, expected.u32_b, next.u32_b);
-        } while( current.u32_a != expected.u32_a || current.u32_b != expected.u32_b );
+            current.u64 = atom_cmpxchg( (volatile __global unsigned long *)addr, expected.u64, next.u64);
+        } while( current.u64 != expected.u64);
     }
 
     __kernel void rasterize(
