@@ -138,7 +138,80 @@ def setup_gpu():
 
             atomicAdd_g_f(&(b_opacities[gaus]), exp(power) * dL_dalpha);
         }
-    }       
+    }   
+
+    __kernel void cov_2d_grads(
+        __global const int *radii, __global const double *d_conics, __global const double *covs_2d, __global const double *covs_3d,
+        __global const double *ws, __global const double *ts, __global const double *view_mat, __global const double *limits_and_focals,
+        global double *d_covs, global double *d_means)    
+    {
+        int gid = get_global_id(0);
+
+        if (radii[gid] <= 0)
+            return;
+        
+        double a = covs_2d[gid*3];
+        double b = covs_2d[gid*3+1];
+        double c = covs_2d[gid*3+2];
+
+        double3 d_conic = (double3)(d_conics[gid*3], d_conics[gid*3+1], d_conics[gid*3+2]);
+
+        double denom = a * c - b * b;
+        double d_da, d_db, d_dc = 0.0;
+        double inv_denom = 1.0 / ((denom * denom) + 0.0000001);
+
+        int w = gid*6;
+
+        if (inv_denom != 0) {
+            d_da = inv_denom * (-c * c * d_conic[0] + 2 * b * c * d_conic[1] + (denom - a * c) * d_conic[2]);
+            d_db = inv_denom * (-a * a * d_conic[2] + 2 * a * b * d_conic[1] + (denom - a * c) * d_conic[0]);
+            d_dc = inv_denom * 2 * (b * c * d_conic[0] - (denom + 2 * b * b) * d_conic[1] + a * b * d_conic[2]);
+
+            d_covs[w  ] = ws[w] * ws[w] * d_da + ws[w] * ws[w+3] * d_db + ws[w+3] * ws[w+3] * d_dc;
+            d_covs[w+3] = ws[w+1] * ws[w+1] * d_da + ws[w+1] * ws[w+4] * d_db + ws[w+4] * ws[w+4] * d_dc;
+            d_covs[w+5] = ws[w+2] * ws[w+2] * d_da + ws[w+2] * ws[w+5] * d_db + ws[w+5] * ws[w+5] * d_dc;
+
+            d_covs[w+1] = 2 * ws[w] * ws[w+1] * d_da + (ws[w] * ws[w+4] + ws[w+1] * ws[w+3]) * d_db + 2 * ws[w+3] * ws[w+4] * d_dc;
+            d_covs[w+2] = 2 * ws[w] * ws[w+2] * d_da + (ws[w] * ws[w+5] + ws[w+2] * ws[w+3]) * d_db + 2 * ws[w+3] * ws[w+5] * d_dc;
+            d_covs[w+2] = 2 * ws[w+2] * ws[w+1] * d_da + (ws[w+1] * ws[w+5] + ws[w+2] * ws[w+4]) * d_db + 2 * ws[w+4] * ws[w+5] * d_dc;
+        }
+
+        double d_dW00 = 2 * (ws[w  ] * covs_3d[w  ] + ws[w+1] * covs_3d[w+1] + ws[w+2] * covs_3d[w+2]) * d_da +
+                            (ws[w+3] * covs_3d[w  ] + ws[w+4] * covs_3d[w+1] + ws[w+5] * covs_3d[w+2]) * d_db;
+        double d_dW01 = 2 * (ws[w  ] * covs_3d[w+1] + ws[w+1] * covs_3d[w+3] + ws[w+2] * covs_3d[w+4]) * d_da +
+                            (ws[w+3] * covs_3d[w+1] + ws[w+4] * covs_3d[w+3] + ws[w+5] * covs_3d[w+4]) * d_db;
+        double d_dW02 = 2 * (ws[w  ] * covs_3d[w+2] + ws[w+1] * covs_3d[w+4] + ws[w+2] * covs_3d[w+5]) * d_da +
+                            (ws[w+3] * covs_3d[w+2] + ws[w+4] * covs_3d[w+4] + ws[w+5] * covs_3d[w+5]) * d_db;
+        double d_dW10 = 2 * (ws[w+3] * covs_3d[w  ] + ws[w+4] * covs_3d[w+1] + ws[w+5] * covs_3d[w+2]) * d_da +
+                            (ws[w  ] * covs_3d[w  ] + ws[w+1] * covs_3d[w+1] + ws[w+2] * covs_3d[w+2]) * d_db;
+        double d_dW11 = 2 * (ws[w+3] * covs_3d[w+1] + ws[w+4] * covs_3d[w+3] + ws[w+5] * covs_3d[w+4]) * d_da +
+                            (ws[w  ] * covs_3d[w+1] + ws[w+1] * covs_3d[w+3] + ws[w+2] * covs_3d[w+4]) * d_db;
+        double d_dW12 = 2 * (ws[w+3] * covs_3d[w+2] + ws[w+4] * covs_3d[w+4] + ws[w+5] * covs_3d[w+5]) * d_da +
+                            (ws[w  ] * covs_3d[w+2] + ws[w+1] * covs_3d[w+4] + ws[w+2] * covs_3d[w+5]) * d_db;
+
+        double d_dJ00 = view_mat[0] * d_dW00 + view_mat[1] * d_dW01 + view_mat[2] * d_dW02;
+        double d_dJ02 = view_mat[6] * d_dW00 + view_mat[7] * d_dW01 + view_mat[8] * d_dW02;
+        double d_dJ11 = view_mat[3] * d_dW10 + view_mat[4] * d_dW11 + view_mat[5] * d_dW12;
+        double d_dJ12 = view_mat[6] * d_dW10 + view_mat[7] * d_dW11 + view_mat[8] * d_dW12;
+        
+        int x_mul = ((ts[gid*3] / ts[gid*3+2]) < (limits_and_focals[0] * -1) || (ts[gid*3] / ts[gid*3+2]) > limits_and_focals[0] ) ? 0 : 1;
+        int y_mul = ((ts[gid*3+1] / ts[gid*3+2]) < (limits_and_focals[1] * -1) || (ts[gid*3+1] / ts[gid*3+2]) > limits_and_focals[1] ) ? 0 : 1;
+
+        double tz = 1.0 / ts[gid*3+2];
+        double tz2 = tz * tz;
+        double tz3 = tz2 * tz;
+
+        double d_mx = x_mul * -limits_and_focals[2] * tz2 * d_dJ02;
+        double d_my = y_mul * -limits_and_focals[3] * tz2 * d_dJ12;
+        double d_mz = -limits_and_focals[2] * tz2 * d_dJ00
+                            - limits_and_focals[3] * tz2 * d_dJ11
+                            + (2 * limits_and_focals[2] * ts[gid*3]) * tz3 * d_dJ02
+                            + (2 * limits_and_focals[3] * ts[gid*3+1]) * tz3 * d_dJ12;
+
+        d_means[gid*3  ] = view_mat[0] * d_mx + view_mat[3] * d_my + view_mat[6] * d_mz;
+        d_means[gid*3+1] = view_mat[1] * d_mx + view_mat[4] * d_my + view_mat[7] * d_mz;
+        d_means[gid*3+2] = view_mat[2] * d_mx + view_mat[5] * d_my + view_mat[8] * d_mz;
+    }
     """).build()
 
     return ctx, queue, program

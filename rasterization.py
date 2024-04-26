@@ -28,11 +28,6 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
     d_conics = np.zeros([num_gaus, 3])
     d_opacity = np.zeros(num_gaus)
 
-    d_colors_temp = np.zeros_like(d_colors)
-    d_centers_temp = np.zeros_like(d_centers)
-    d_conics_temp = np.zeros_like(d_conics)
-    d_opacity_temp = np.zeros_like(d_opacity)
-
     other_data = np.empty(6, dtype=np.int32)
     other_data[1] = 1 if (training) else 0
     other_data[4] = result_size[0]
@@ -70,7 +65,8 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             gaus_stack_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=depth_sorted_gaus)
             other_data_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=other_data)
 
-            program.rasterize(queue, np.arange(16*16).shape, None,
+            rast_kernel = program.rasterize
+            rast_kernel(queue, np.arange(16*16).shape, None,
                               centers_g, colors_g, opacities_g, conics_g, gaus_stack_g, background_color_g, other_data_g,
                               image_g, d_colors_g, d_centers_g, d_conics_g, d_opacity_g)
             
@@ -83,7 +79,7 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             
             image[i*tile_size:last_x, j*tile_size:last_y] = copy.deepcopy(image_chunk[:chunk_x,:chunk_y])
 
-            print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
+            #print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
     if(training):
         cl.enqueue_copy(queue, d_colors, d_colors_g)
         cl.enqueue_copy(queue, d_centers, d_centers_g)

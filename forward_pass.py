@@ -1,5 +1,6 @@
 import numpy as np, quaternion
-import math, multiprocessing
+import math
+from functions import *
 
 #SH coefficients
 SH_C0 = 0.28209479177387814
@@ -19,9 +20,15 @@ SH_C3 = np.array([-0.5900435899266435,
 
 # can definitely multiproc this later
 # update: lol. lmao
-def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], tile_size=16):
+def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], tile_size=16, training=True):
     gaus_num = len(gaussians.center)
-    mod_covariances = np.zeros([gaus_num, 3])
+    # saving these values prevents having to recompute them during the backwards pass
+    if(training):
+        mod_Ts = np.zeros([gaus_num, 3])
+        mod_2d_covs = np.zeros([gaus_num, 3])
+        mod_3d_covs = np.zeros([gaus_num, 6])
+        mod_Ws = np.zeros_like(mod_3d_covs)
+    mod_conics = np.zeros_like(mod_2d_covs)
     mod_centers = np.zeros([gaus_num, 2])
     mod_depths = np.zeros(gaus_num)
     mod_colors = np.zeros([gaus_num, 3])
@@ -37,10 +44,6 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
     proj_mat = get_projection_matrix(fov_x, fov_y)
     view_mat = get_view_matrix(r, t)
 
-    zero_dets = 0
-    take_1 = 0
-    take_2 = 0
-
     activated_scales = np.exp(gaussians.scaling)
 
     # this is where we get the covariance & center matrices for each gaussian in coordinance with where the camera is pointing to
@@ -55,7 +58,6 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         # snipe gaussians too close to the camera
         view_adj_center = view_mat @ center
         if(view_adj_center[2] <= .2):
-            take_1+=1
             continue
 
         mod_depths[i] = view_adj_center[2]
@@ -65,7 +67,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         M = rot_matrix @ activated_scales[i][:, np.newaxis]
         cov_matrix =  M @ np.transpose(M)
 
-        j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], view_mat @ np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,)))
+        t = view_mat @ np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
+        j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], t)
         W = j_matrix @ r
         cov_2d = W @ cov_matrix @ np.transpose(W)
         cov_2d_vals = [cov_2d[0,0], cov_2d[0,1],cov_2d[1,1]]
@@ -75,6 +78,11 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         cov_2d_vals[2] += .3
         # yay we got the covariances (just 3 values ultimately) awesome
         #print(cov_2d_vals)
+        if(training):
+            mod_Ws[i] = [W[0,0], W[0,1], W[0,2], W[1,0], W[1,1], W[1,2]]
+            mod_Ts[i] = t[0:3]
+            mod_2d_covs[i] = cov_2d_vals
+            mod_3d_covs[i] = [cov_matrix[0,0], cov_matrix[0,1], cov_matrix[0,2], cov_matrix[1,1], cov_matrix[1,2], cov_matrix[2,2]]
 
         #invert covariance
         det = (cov_2d_vals[0] * cov_2d_vals[2] - cov_2d_vals[1] * cov_2d_vals[1])
@@ -83,7 +91,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         det_inv = 1.0 / det
         conic = [cov_2d_vals[2] * det_inv, -cov_2d_vals[1] * det_inv, cov_2d_vals[0] * det_inv]
 
-        mod_covariances[i] = conic
+        mod_conics[i] = conic
 
         # calculate the maximum radius of the gaussian based off its
         middle = .5 * (cov_2d_vals[0] + cov_2d_vals[2])
@@ -100,20 +108,18 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         ])
 
         if (center_on_screen[0] + radius < 0 or center_on_screen[0] - radius > result_size[0] or center_on_screen[1] + radius < 0 or center_on_screen[1] - radius > result_size[1]):
-            take_2+=1
             continue
 
-        zero_dets+=1
         mod_colors[i], clamped[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
 
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
 
-    #print(zero_dets)
-    #print(take_1)
-    #print(take_2)
-    return mod_centers, mod_depths, mod_colors, mod_covariances, clamped, tiles_touched, radii
-
+    if(training):
+        return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii, mod_Ws, mod_Ts, mod_2d_covs, mod_3d_covs
+    else:
+        return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii
+    
 def compute_color(degrees, center, camera_position, sh):
     #Normalized direction to gaus center
     direction = center - camera_position
@@ -161,39 +167,3 @@ def compute_color(degrees, center, camera_position, sh):
     return result, clamped
 
 
-def get_view_matrix(r, t):
-    view_mat = np.zeros([4,4])
-    view_mat[:3,:3] = np.transpose(r)
-    view_mat[:3,3] = t
-    view_mat[3,3] = 1.0
-    return view_mat
-
-def get_projection_matrix(fov_x, fov_y, z_near = .01, z_far = 100):
-    top = math.tan(fov_y/2) * z_near
-    right = math.tan(fov_x/2) * z_near
-
-    proj = np.zeros([4,4])
-    proj[0,0] = z_near / right
-    proj[1,1] = z_near / top
-    proj[2,2] = z_far / (z_far - z_near)
-    proj[2,3] = -(z_far * z_near) / (z_far - z_near)
-    proj[3,2] = 1.0
-
-    return proj
-
-def get_jacobian_matrix(fov_x, fov_y, focal_x, focal_y, center):
-    lim_x = 1.3 * math.tan(fov_x/2)
-    lim_y = 1.3 * math.tan(fov_y/2)
-    mathed_center = np.array([min(lim_x, max(-lim_x, center[0]/center[2])) * center[2],
-                              min(lim_y, max(-lim_y, center[1]/center[2])) * center[2], center[2]])
-
-    return np.matrix([
-        [focal_x / mathed_center[2], 0.0, -(focal_x * mathed_center[0]) / (mathed_center[2] * mathed_center[2])],
-        [0.0, focal_y / mathed_center[2], -(focal_y * mathed_center[1]) / (mathed_center[2] * mathed_center[2])],
-        [0,0,0]
-    ])
-
-def focal_to_fov(focal_len, pixels):
-    return 2 * math.atan(pixels / (2*focal_len))
-def get_pixel(num, scale):
-    return ((num+1.0) * scale - 1.0) * .5

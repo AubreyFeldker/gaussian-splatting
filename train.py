@@ -1,7 +1,9 @@
 import numpy as np, quaternion
 import math, time
 from scipy.spatial import KDTree
-import forward_pass as forward, rasterization
+from forward_pass import forward_pass
+from backward_pass import backward_pass
+from rasterization import rasterize, c_rasterize, gpu_rasterize, match_gaus_to_tiles
 from PIL import Image
 
 class GaussianSet():
@@ -43,22 +45,26 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
     print("setup complete in {time}s".format(time=time.perf_counter()-t0))
     t1 = time.perf_counter()
     
-    centers, depths, colors, conics, clampeds, tiles_touched, radii = forward.forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size)
+    centers, depths, colors, conics, clampeds, tiles_touched, radii, ws, ts, covs_2d, covs_3d = forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size, training=True)
     print("forward pass complete in {time}s".format(time=time.perf_counter()-t1))
     t1 = time.perf_counter()
     
-    key_mapper = rasterization.match_gaus_to_tiles(tiles_touched, radii, depths)
+    key_mapper = match_gaus_to_tiles(tiles_touched, radii, depths)
     t2 = time.perf_counter()
     print("key mapping complete in {time}s".format(time=t2-t1))
     
 
-    image, d_colors, d_centers, d_conics, d_opacity = rasterization.gpu_rasterize(ctx, queue, program, centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size, training=True)
-    #image = rasterization.c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
-    #image = rasterization.rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
-
+    image, d_colors, d_2d_centers, d_conics, d_opacity = gpu_rasterize(ctx, queue, program, centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size, training=True)
+    #image = c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
+    #image = rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
     print("rasterization complete in {time}s".format(time=time.perf_counter()-t2))
-    print(d_colors)
-    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_7.jpg")
+    t3 = time.perf_counter()
+
+    backward_pass(ctx, queue, program, chosen_camera, camera_r, camera_t, gaussians,
+                  radii, covs_2d, covs_3d, ws, ts,
+                  d_colors, d_2d_centers, d_conics, d_opacity)
+    print("backwards pass complete in {time}s".format(time=time.perf_counter()-t3))
+    #Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_7.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):

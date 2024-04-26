@@ -1,2 +1,3 @@
 output/*
 shared.so
+__pycache__
