@@ -66,7 +66,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
     print("backwards pass complete in {time}s".format(time=time.perf_counter()-t4))
 
     print("total pass completed in {time}s".format(time=time.perf_counter()-t1))
-    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_9.jpg")
+    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_10.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):

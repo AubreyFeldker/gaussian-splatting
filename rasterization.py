@@ -36,7 +36,7 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
     d_opacity = np.zeros(num_gaus)
 
     other_data = np.empty(6, dtype=np.int32)
-    other_data[0] = num_gaus
+    
     other_data[1] = 1 if (training) else 0
     other_data[4] = result_size[0]
     other_data[5] = result_size[1]
@@ -62,12 +62,19 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
     for i in range(hor_tiles):
         for j in range(ver_tiles):
             t0 = time.perf_counter()
-            keys = cl.array.Array(queue, num_gaus, dtype=np.uint64)
-            keys.set(mapped_keys[i,j], queue=queue)
+            
+            np_keys = mapped_keys[i,j]
+            np_keys = np_keys[np_keys << 32 != 0]
+            keys = cl.array.Array(queue, len(np_keys), dtype=np.uint64)
+            keys.set(np_keys, queue=queue)
             (keys_sorted,), evt = sort(keys, key_bits=32)
             gaus_stack = keys_sorted.get()
+            
+            other_data[0] = len(gaus_stack)
+            if(len(gaus_stack) == 0):
+                gaus_stack = np.ones(1, dtype=np.uint64)
 
-
+            
             other_data[2] = i * tile_size
             other_data[3] = j * tile_size
             t1 = time.perf_counter()
