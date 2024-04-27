@@ -254,6 +254,14 @@ def setup_gpu():
         d_centers[gid*3+2] += (proj_mat[8] * m_w - proj_mat[11] * mult1) * d_2d_centers[gid*2] +
                             (proj_mat[9] * m_w - proj_mat[11] * mult2) * d_2d_centers[gid*2+1];
     }
+
+    __kernel void sh_grads(
+        __global const double *dirs, __global const double *shs, __global const bool *clampeds, __global const double *d_colors, __global const double SH2, __global const double SH3,
+        __global double *d_means, __global double *d_shs)
+    {
+        int gid = get_global_id(0);
+        double3
+    }
     """).build()
 
     return ctx, queue, program

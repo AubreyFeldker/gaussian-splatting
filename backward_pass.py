@@ -4,8 +4,8 @@ import pyopencl as cl
 from functions import *
 
 def backward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians,
-                  radii, covs_2d, covs_3d, ws, ts,
-                  d_colors, d_2d_centers, d_conics, d_opacity):
+                  radii, covs_2d, covs_3d, ws, ms, ts, dirs,
+                  d_colors, d_2d_centers, d_conics):
     r = np.transpose(camera_r)
     t = camera_t
 
@@ -18,9 +18,39 @@ def backward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians,
     d_covs, d_means = cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d,
                                        ws, ts, r, limits_and_focals,
                                        proj_mat, gaussians.center, d_2d_centers)
+    
+    d_scales = np.empty([len(radii), 3])
+    d_rots = np.empty([len(radii), 4])
 
     for i in range(len(radii)):
-        pass
+        rot = gaussians.rotation[i]
+        r = rot[0]
+        x = rot[1]
+        y = rot[2]
+        z = rot[3]
+        d_cov = d_covs[i]
+
+        d_sigma = np.asarray([[d_cov[0], d_cov[1] * .5, d_cov[2] * .5],
+                              [d_cov[1] * .5, d_cov[3], d_cov[4] * .5],
+                              [d_cov[2] * .5, d_cov[4] * .5, d_cov[5]]])
+
+        Rt = np.transpose(quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i] / np.linalg.norm(gaussians.rotation[i], np.inf))))
+        dMt = np.transpose(d_sigma @ ms[i] * 2.0)
+
+        d_scales[i,0] = np.dot(Rt[0], dMt[0])
+        d_scales[i,1] = np.dot(Rt[1], dMt[1])
+        d_scales[i,2] = np.dot(Rt[2], dMt[2])
+
+        dMt[0] *= gaussians.scaling[i,0]
+        dMt[1] *= gaussians.scaling[i,1]
+        dMt[2] *= gaussians.scaling[i,2]
+
+        d_rots[i,0] = 2 * z * (dMt[0][1] - dMt[1][0]) + 2 * y * (dMt[2][0] - dMt[0][2]) + 2 * x * (dMt[1][2] - dMt[2][1])
+        d_rots[i,1] = 2 * y * (dMt[1][0] + dMt[0][1]) + 2 * z * (dMt[2][0] + dMt[0][2]) + 2 * r * (dMt[1][2] - dMt[2][1]) - 4 * x * (dMt[2][2] + dMt[1][1])
+        d_rots[i,2] = 2 * x * (dMt[1][0] + dMt[0][1]) + 2 * r * (dMt[2][0] - dMt[0][2]) + 2 * z * (dMt[1][2] + dMt[2][1]) - 4 * y * (dMt[2][2] + dMt[0][0])
+        d_rots[i,3] = 2 * r * (dMt[0][1] - dMt[1][0]) + 2 * x * (dMt[2][0] + dMt[0][2]) + 2 * y * (dMt[1][2] + dMt[2][1]) - 4 * z * (dMt[1][1] + dMt[0][0])
+
+
 
 def cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d,
                      ws, ts, r, limits_and_focals,

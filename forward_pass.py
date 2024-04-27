@@ -25,10 +25,12 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
     gaus_num = len(gaussians.center)
     # saving these values prevents having to recompute them during the backwards pass
     if(training):
+        mod_Ms = np.zeros([gaus_num, 3, 3])
         mod_Ts = np.zeros([gaus_num, 3])
         mod_2d_covs = np.zeros([gaus_num, 3])
         mod_3d_covs = np.zeros([gaus_num, 6])
         mod_Ws = np.zeros_like(mod_3d_covs)
+    mod_dirs = np.zeros([gaus_num, 3])
     mod_conics = np.zeros_like(mod_2d_covs)
     mod_centers = np.zeros([gaus_num, 2])
     mod_depths = np.zeros(gaus_num,dtype=np.int32)
@@ -66,7 +68,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         mod_depths[i] = (d if (-2 ** 31 <= d < 2 ** 31) else c_int32(d).value)
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
-        rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))
+        rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i] / np.linalg.norm(gaussians.rotation[i], np.inf)))
         M = rot_matrix @ np.asarray([[activated_scales[i,0],1,1],[1,activated_scales[i,1],1],[1,1,activated_scales[i,2]]])
         cov_matrix =  M @ np.transpose(M)
 
@@ -82,6 +84,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         # yay we got the covariances (just 3 values ultimately) awesome
         #print(cov_2d_vals)
         if(training):
+            mod_Ms[i] = M
             mod_Ws[i] = [W[0,0], W[0,1], W[0,2], W[1,0], W[1,1], W[1,2]]
             mod_Ts[i] = t[0:3]
             mod_2d_covs[i] = cov_2d_vals
@@ -113,13 +116,13 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         if (center_on_screen[0] + radius < 0 or center_on_screen[0] - radius > result_size[0] or center_on_screen[1] + radius < 0 or center_on_screen[1] - radius > result_size[1]):
             continue
 
-        mod_colors[i], clamped[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
+        mod_colors[i], clamped[i], mod_dirs[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
 
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
 
     if(training):
-        return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii, mod_Ws, mod_Ts, mod_2d_covs, mod_3d_covs
+        return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii, mod_Ws, mod_Ms, mod_Ts, mod_2d_covs, mod_3d_covs, mod_dirs
     else:
         return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii
     
@@ -167,6 +170,6 @@ def compute_color(degrees, center, camera_position, sh):
             result[i] = 0
             clamped[i] = True
 
-    return result, clamped
+    return result, clamped, direction
 
 

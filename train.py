@@ -45,25 +45,27 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
     print("setup complete in {time}s".format(time=time.perf_counter()-t0))
     t1 = time.perf_counter()
     
-    centers, depths, colors, conics, clampeds, tiles_touched, radii, ws, ts, covs_2d, covs_3d = forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size, training=True)
+    centers, depths, colors, conics, clampeds, tiles_touched, radii, ws, ms, ts, covs_2d, covs_3d, dirs = forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size, training=True)
     print("forward pass complete in {time}s".format(time=time.perf_counter()-t1))
-    t1 = time.perf_counter()
+    t2 = time.perf_counter()
     
     key_mapper = match_gaus_to_tiles(ctx, queue, program, tiles_touched, radii, depths)
-    t2 = time.perf_counter()
-    print("key mapping complete in {time}s".format(time=t2-t1))
+    print("key mapping complete in {time}s".format(time=time.perf_counter()-t2))
+    t3 = time.perf_counter()
     
 
     image, d_colors, d_2d_centers, d_conics, d_opacity = gpu_rasterize(ctx, queue, program, centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size, training=True)
     #image = c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
     #image = rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
-    print("rasterization complete in {time}s".format(time=time.perf_counter()-t2))
-    t3 = time.perf_counter()
+    print("rasterization complete in {time}s".format(time=time.perf_counter()-t3))
+    t4 = time.perf_counter()
 
     backward_pass(ctx, queue, program, chosen_camera, camera_r, camera_t, gaussians,
-                  radii, covs_2d, covs_3d, ws, ts,
-                  d_colors, d_2d_centers, d_conics, d_opacity)
-    print("backwards pass complete in {time}s".format(time=time.perf_counter()-t3))
+                  radii, covs_2d, covs_3d, ws, ms, ts, dirs,
+                  d_colors, d_2d_centers, d_conics)
+    print("backwards pass complete in {time}s".format(time=time.perf_counter()-t4))
+
+    print("total pass completed in {time}s".format(time=time.perf_counter()-t1))
     Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_9.jpg")
 
 # Credit to rfeinman on Github for implementation
@@ -76,7 +78,3 @@ def __sigmoid(x):
     return 1 / (1 + math.exp(-x))
 def __inv_sigmoid(x):
     return math.log(x / (1-x)) 
-def __elu(x, alpha=1.0):
-    return x if (x >= 0) else alpha * (math.exp(-x) - 1)
-def __inv_elu(x, alpha=1.0):
-    return 1 if (x >= 0) else alpha * math.exp(x)
