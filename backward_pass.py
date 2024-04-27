@@ -11,20 +11,23 @@ def backward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians,
 
     fov_x = focal_to_fov(camera.params[0], camera.width)
     fov_y = focal_to_fov(camera.params[1], camera.height)
+    proj_mat = get_projection_matrix(fov_x, fov_y)
 
     limits_and_focals = np.asarray([1.3 * math.tan(fov_x/2), 1.3 * math.tan(fov_y/2), camera.params[0], camera.params[1]])
 
-    d_covs, d_means = cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d, ws, ts, r, limits_and_focals)
+    d_covs, d_means = cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d,
+                                       ws, ts, r, limits_and_focals,
+                                       proj_mat, gaussians.center, d_2d_centers)
 
-    print(d_covs.shape)
-    print(d_means)
+    for i in range(len(radii)):
+        pass
 
-def cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d, ws, ts, r, limits_and_focals):
+def cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d,
+                     ws, ts, r, limits_and_focals,
+                    proj_mat, centers, d_2d_centers):
     num_gaus = len(radii)
     d_covs = np.zeros([num_gaus, 6])
     d_means = np.zeros([num_gaus, 3])
-
-    print(covs_2d)
     
     mf = cl.mem_flags
     radii_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=radii)
@@ -35,6 +38,9 @@ def cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d, ws, 
     ts_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=ts.flatten())
     view_mat_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=r.flatten())
     l_f_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=limits_and_focals)
+    proj_mat_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=proj_mat.flatten())
+    centers_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=centers.flatten())
+    d_2d_centers_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=d_2d_centers.flatten())
 
     d_covs_g = cl.Buffer(ctx, mf.WRITE_ONLY, d_covs.nbytes)
     d_means_g = cl.Buffer(ctx, mf.WRITE_ONLY, d_means.nbytes)
@@ -44,6 +50,7 @@ def cov_2d_backpass(ctx, queue, program, radii, d_conics, covs_2d, covs_3d, ws, 
     cov_2_kernel(queue, radii.shape, None,
                  radii_g, d_conics_g, covs_2d_g, covs_3d_g,
                  ws_g, ts_g, view_mat_g, l_f_g,
+                 proj_mat_g, centers_g, d_2d_centers_g,
                  d_covs_g, d_means_g)
     
     cl.enqueue_copy(queue, d_covs, d_covs_g)

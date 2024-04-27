@@ -143,7 +143,8 @@ def setup_gpu():
     __kernel void cov_2d_grads(
         __global const int *radii, __global const double *d_conics, __global const double *covs_2d, __global const double *covs_3d,
         __global const double *ws, __global const double *ts, __global const double *view_mat, __global const double *limits_and_focals,
-        global double *d_covs, global double *d_means)    
+        __global const double *proj_mat, __global const double *centers, __global const double *d_2d_centers,
+        global double *d_covs, global double *d_centers)    
     {
         int gid = get_global_id(0);
 
@@ -208,9 +209,22 @@ def setup_gpu():
                             + (2 * limits_and_focals[2] * ts[gid*3]) * tz3 * d_dJ02
                             + (2 * limits_and_focals[3] * ts[gid*3+1]) * tz3 * d_dJ12;
 
-        d_means[gid*3  ] = view_mat[0] * d_mx + view_mat[3] * d_my + view_mat[6] * d_mz;
-        d_means[gid*3+1] = view_mat[1] * d_mx + view_mat[4] * d_my + view_mat[7] * d_mz;
-        d_means[gid*3+2] = view_mat[2] * d_mx + view_mat[5] * d_my + view_mat[8] * d_mz;
+        d_centers[gid*3  ] = view_mat[0] * d_mx + view_mat[3] * d_my + view_mat[6] * d_mz;
+        d_centers[gid*3+1] = view_mat[1] * d_mx + view_mat[4] * d_my + view_mat[7] * d_mz;
+        d_centers[gid*3+2] = view_mat[2] * d_mx + view_mat[5] * d_my + view_mat[8] * d_mz;
+
+        // Now doing the means based transformation from screenspace points
+        int s = gid*3;
+        float m_w = 1.0 / (proj_mat[3] * centers[s] + proj_mat[7] * centers[s+1] + proj_mat[11] * centers[s+2] + proj_mat[15] + .0000001);
+        double mult1 = (proj_mat[0] * centers[s] + proj_mat[4] * centers[s+1] + proj_mat[8] * centers[s+2] * proj_mat[12]) * m_w * m_w;
+        double mult2 = (proj_mat[1] * centers[s] + proj_mat[5] * centers[s+1] + proj_mat[9] * centers[s+2] * proj_mat[13]) * m_w * m_w;
+
+        d_centers[gid*3  ] += (proj_mat[0] * m_w - proj_mat[3] * mult1) * d_2d_centers[gid*2] +
+                            (proj_mat[1] * m_w - proj_mat[3] * mult2) * d_2d_centers[gid*2+1];
+        d_centers[gid*3+1] += (proj_mat[4] * m_w - proj_mat[7] * mult1) * d_2d_centers[gid*2] +
+                            (proj_mat[5] * m_w - proj_mat[7] * mult2) * d_2d_centers[gid*2+1];
+        d_centers[gid*3+2] += (proj_mat[8] * m_w - proj_mat[11] * mult1) * d_2d_centers[gid*2] +
+                            (proj_mat[9] * m_w - proj_mat[11] * mult2) * d_2d_centers[gid*2+1];
     }
     """).build()
 
