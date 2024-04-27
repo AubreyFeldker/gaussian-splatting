@@ -69,7 +69,7 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             keys.set(np_keys, queue=queue)
             (keys_sorted,), evt = sort(keys, key_bits=32)
             gaus_stack = keys_sorted.get()
-            
+
             other_data[0] = len(gaus_stack)
             if(len(gaus_stack) == 0):
                 gaus_stack = np.ones(1, dtype=np.uint64)
@@ -96,7 +96,7 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             
             image[i*tile_size:last_x, j*tile_size:last_y] = copy.deepcopy(image_chunk[:chunk_x,:chunk_y])
 
-            print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
+            #print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
     if(training):
         cl.enqueue_copy(queue, d_colors, d_colors_g)
         cl.enqueue_copy(queue, d_centers, d_centers_g)

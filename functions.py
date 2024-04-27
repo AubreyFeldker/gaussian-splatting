@@ -37,3 +37,9 @@ def focal_to_fov(focal_len, pixels):
     return 2 * math.atan(pixels / (2*focal_len))
 def get_pixel(num, scale):
     return ((num+1.0) * scale - 1.0) * .5
+
+# Activation functions & inverse activation functions
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+def inv_sigmoid(x):
+    return -1 * np.log((1/x) - 1) 

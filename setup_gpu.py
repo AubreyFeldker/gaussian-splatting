@@ -243,7 +243,7 @@ def setup_gpu():
 
         // Now doing the means based transformation from screenspace points
         int s = gid*3;
-        float m_w = 1.0 / (proj_mat[3] * centers[s] + proj_mat[7] * centers[s+1] + proj_mat[11] * centers[s+2] + proj_mat[15] + .0000001);
+        double m_w = 1.0 / (proj_mat[3] * centers[s] + proj_mat[7] * centers[s+1] + proj_mat[11] * centers[s+2] + proj_mat[15] + .0000001);
         double mult1 = (proj_mat[0] * centers[s] + proj_mat[4] * centers[s+1] + proj_mat[8] * centers[s+2] * proj_mat[12]) * m_w * m_w;
         double mult2 = (proj_mat[1] * centers[s] + proj_mat[5] * centers[s+1] + proj_mat[9] * centers[s+2] * proj_mat[13]) * m_w * m_w;
 
@@ -255,12 +255,54 @@ def setup_gpu():
                             (proj_mat[9] * m_w - proj_mat[11] * mult2) * d_2d_centers[gid*2+1];
     }
 
-    __kernel void sh_grads(
-        __global const double *dirs, __global const double *shs, __global const bool *clampeds, __global const double *d_colors, __global const double *SH2, __global const double *SH3,
-        __global double *d_means, __global double *d_shs)
+    // SH computations taken from gaussian splatting paper (obviously)
+    double3 dnormvdv(double3 v, double3 dv)
     {
+        double sum2 = v.x * v.x + v.y * v.y + v.z * v.z;
+        double invsum32 = 1.0f / sqrt(sum2 * sum2 * sum2);
+
+        double3 dnormvdv;
+        dnormvdv.x = ((+sum2 - v.x * v.x) * dv.x - v.y * v.x * dv.y - v.z * v.x * dv.z) * invsum32;
+        dnormvdv.y = (-v.x * v.y * dv.x + (sum2 - v.y * v.y) * dv.y - v.z * v.y * dv.z) * invsum32;
+        dnormvdv.z = (-v.x * v.z * dv.x - v.y * v.z * dv.y + (sum2 - v.z * v.z) * dv.z) * invsum32;
+        return dnormvdv;
+    }
+
+    __kernel void sh_grads(
+        __global const double3 *dirs, __global const double3 *shs, __global const bool *clampeds, __global const double *SH_C2, __global const double *SH_C3, __global const int *degree,
+        __global double3 *d_colors, __global double3 *d_means, __global double3 *d_shs)
+    {
+        const double SH_C0 = 0.28209479177387814;
+        const double SH_C1 = 0.4886025119029199;
+
         int gid = get_global_id(0);
-        //double3
+        int g = gid*3;
+        int s = gid*16;
+
+        d_colors[g].x = clampeds[g  ] ? 0 : 1;
+        d_colors[g].y = clampeds[g+1] ? 0 : 1;
+        d_colors[g].z = clampeds[g+2] ? 0 : 1;
+
+        double3 d_col_x, d_col_y, d_col_z = (double3)(0,0,0);
+        double x = dirs[g].x;
+        double y = dirs[g].y;
+        double z = dirs[g].z;
+
+        d_shs[s] = SH_C0 * d_colors[g];
+        if(*degree > 0) {
+            d_shs[s+1] = (-SH_C1 * y) * d_colors[g];
+            d_shs[s+2] = ( SH_C1 * z) * d_colors[g];
+            d_shs[s+3] = (-SH_C1 * x) * d_colors[g];
+
+            d_col_x = -SH_C1 * shs[s+3];
+            d_col_y = -SH_C1 * shs[s+1];
+            d_col_z = -SH_C1 * shs[s+2];
+        }
+
+        double3 d_dir = (double3)(d_col_x.x * d_colors[g].x + d_col_x.y * d_colors[g].y + d_col_x.z * d_colors[g].z,
+                                    d_col_y.x * d_colors[g].x + d_col_y.y * d_colors[g].y + d_col_y.z * d_colors[g].z,
+                                    d_col_z.x * d_colors[g].x + d_col_z.y * d_colors[g].y + d_col_z.z * d_colors[g].z);
+        d_means[g] += dnormvdv(dirs[g], d_dir);
     }
     """).build()
 

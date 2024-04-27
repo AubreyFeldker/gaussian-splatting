@@ -5,14 +5,15 @@ import pyopencl as cl, time, os
 
 if __name__ == "__main__":
     t0 = time.perf_counter()
-    path = "C:/Users/Brooks/Downloads/colmap_db/truck/sparse/0"
+    path = "./input/sparse/0"
     cameras, images, point_cloud = colmap_rw.read_model(path, ".bin")
 
     learning_rates = {
-        'center': .00016,
-        'scaling': .005,
-        'opacity': .05,
-        'rotation': .001
+        'center': .0008,
+        'scaling': .025,
+        'opacity': .25,
+        'rotation': .005,
+        'sh': .0125
     }
 
     os.environ['PYOPENCL_COMPILER_OUTPUT'] = '0'

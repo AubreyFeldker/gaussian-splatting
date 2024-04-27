@@ -60,7 +60,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         # snipe gaussians too close to the camera
         view_adj_center = view_mat @ center
-        if(view_adj_center[2] <= .2):
+        if(view_adj_center[2] <= .2 or math.isnan(view_adj_center[2]) ):
             continue
 
         # maximize fidelity of the depth for key sorting
@@ -120,6 +120,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
+
+        #print('%3.2f percent done with forward_pass' % ((100.0 * i) / len(gaussians.center)), end='\r')
 
     if(training):
         return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii, mod_Ws, mod_Ms, mod_Ts, mod_2d_covs, mod_3d_covs, mod_dirs
