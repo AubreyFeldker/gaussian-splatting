@@ -15,7 +15,7 @@ if __name__ == "__main__":
         'rotation': .001
     }
 
-    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '0'
     os.environ['PYOPENCL_CTX'] = '0'
     ctx, queue, program = setup_gpu()
 

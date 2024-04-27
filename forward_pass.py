@@ -1,6 +1,7 @@
 import numpy as np, quaternion
 import math
 from functions import *
+from ctypes import c_int32
 
 #SH coefficients
 SH_C0 = 0.28209479177387814
@@ -30,7 +31,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         mod_Ws = np.zeros_like(mod_3d_covs)
     mod_conics = np.zeros_like(mod_2d_covs)
     mod_centers = np.zeros([gaus_num, 2])
-    mod_depths = np.zeros(gaus_num)
+    mod_depths = np.zeros(gaus_num,dtype=np.int32)
     mod_colors = np.zeros([gaus_num, 3])
     clamped = np.zeros([gaus_num, 3])
     radii = np.zeros(gaus_num)
@@ -60,11 +61,13 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         if(view_adj_center[2] <= .2):
             continue
 
-        mod_depths[i] = view_adj_center[2]
+        # maximize fidelity of the depth for key sorting
+        d = int(view_adj_center[2]*100000)
+        mod_depths[i] = (d if (-2 ** 31 <= d < 2 ** 31) else c_int32(d).value)
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
         rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))
-        M = rot_matrix @ activated_scales[i][:, np.newaxis]
+        M = rot_matrix @ np.asarray([[activated_scales[i,0],1,1],[1,activated_scales[i,1],1],[1,1,activated_scales[i,2]]])
         cov_matrix =  M @ np.transpose(M)
 
         t = view_mat @ np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))

@@ -49,7 +49,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
     print("forward pass complete in {time}s".format(time=time.perf_counter()-t1))
     t1 = time.perf_counter()
     
-    key_mapper = match_gaus_to_tiles(tiles_touched, radii, depths)
+    key_mapper = match_gaus_to_tiles(ctx, queue, program, tiles_touched, radii, depths)
     t2 = time.perf_counter()
     print("key mapping complete in {time}s".format(time=t2-t1))
     
@@ -64,7 +64,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
                   radii, covs_2d, covs_3d, ws, ts,
                   d_colors, d_2d_centers, d_conics, d_opacity)
     print("backwards pass complete in {time}s".format(time=time.perf_counter()-t3))
-    #Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_7.jpg")
+    Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("output/result_9.jpg")
 
 # Credit to rfeinman on Github for implementation
 def knn_distances(points):

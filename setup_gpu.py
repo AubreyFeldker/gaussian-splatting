@@ -20,9 +20,32 @@ def setup_gpu():
         } while( current.u64 != expected.u64);
     }
 
+    __kernel void tile_match(
+        __global const int *tiles_touched, __global const int *depths, __global const int *tile_dims_ng, __global const int *radii,
+        __global ulong *key_mapper)
+    {
+        int gid = get_global_id(0);
+        int grid_x = gid / tile_dims_ng[1];
+        int grid_y = gid % tile_dims_ng[1];
+        int s = (grid_x*tile_dims_ng[1]+grid_y) * tile_dims_ng[2];
+        ulong key;
+
+        for(int gaus = 0; gaus < tile_dims_ng[2]; gaus++) {
+            if(radii[gaus] == 0)
+                key_mapper[s+gaus] = 0;
+                
+            key = (ulong)gaus << 32;
+            if(grid_x >= tiles_touched[gaus*4+0] && grid_x < tiles_touched[gaus*4+2]
+            && grid_y >= tiles_touched[gaus*4+1] && grid_y < tiles_touched[gaus*4+3])
+                key_mapper[s+gaus] = key + depths[gaus];
+            else
+                key_mapper[s+gaus] = key;
+        }
+    }
+
     __kernel void rasterize(
         __global const double *centers, __global const double *colors, __global const double *opacities, __global const double *conics,
-        __global const int *gaus_stack, __global const double *background_color, __global const int *other_data,
+        __global const ulong *gaus_stack, __global const double *background_color, __global const int *other_data,
         __global double *image_chunk, __global double *b_colors, __global double *b_centers, __global double *b_conics, __global double *b_opacities)
     {
         int gid = get_global_id(0);
@@ -39,6 +62,7 @@ def setup_gpu():
         }
         
         int contributor = 0;
+        int first_contributor = other_data[0];
         int gaus;
 
         double T = 1.0;
@@ -46,7 +70,11 @@ def setup_gpu():
 
         for (int i = 0; i < other_data[0]; i++) {
             contributor += 1;
-            gaus = gaus_stack[i];
+            if(gaus_stack[i] << 32 == 0)
+                continue;
+
+            gaus = gaus_stack[i] >> 32;
+            first_contributor = i;
 
             dist_x = centers[gaus*2] - x + .5;
             dist_y = centers[gaus*2+1] - y + .5;
@@ -88,7 +116,7 @@ def setup_gpu():
             dL_dpixel = image_chunk[gid*3+ch];
         }
 
-        for(int j = contributor; j >= 0; j--) {
+        for(int j = contributor; j >= first_contributor; j--) {
             gaus = gaus_stack[j];
 
             dist_x = centers[gaus*2] - x + .5;

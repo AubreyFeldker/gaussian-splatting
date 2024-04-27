@@ -1,19 +1,26 @@
-import numpy as np, math, copy
+import numpy as np, math, copy, time
 from ctypes import *
 import pyopencl as cl
+from pyopencl.algorithm import RadixSort
 
-def match_gaus_to_tiles(tiles_touched, radiis, depths, result_size=[979,546], tile_size=16):
-    hor_tiles = math.ceil(result_size[0] * 1.0 / tile_size)
-    ver_tiles = math.ceil(result_size[1] * 1.0 / tile_size)
-    key_mapper = [[dict() for i in range(ver_tiles)] for j in range(hor_tiles)]
+def match_gaus_to_tiles(ctx, queue, program, tiles_touched, radiis, depths, result_size=[979,546], tile_size=16):
+    tile_dims_ng = np.asarray([math.ceil(result_size[0] * 1.0 / tile_size), math.ceil(result_size[1] * 1.0 / tile_size), len(radiis)], dtype=np.int32)
+    key_mapper = np.empty([tile_dims_ng[0], tile_dims_ng[1], len(radiis)], dtype=np.uint64)
 
-    for gaus in range(len(tiles_touched)):
-        if (radiis[gaus] == 0):
-            continue
+    mf = cl.mem_flags
 
-        for i in range(tiles_touched[gaus,0,0], tiles_touched[gaus,1,0]):
-            for j in range(tiles_touched[gaus,0,1], tiles_touched[gaus,1,1]):
-                key_mapper[i][j][depths[gaus]] = gaus
+    tiles_touched_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=tiles_touched.flatten())
+    depths_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=depths)
+    tile_dims_ng_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=tile_dims_ng)
+    radiis_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=radiis)
+    key_mapper_g = cl.Buffer(ctx, mf.WRITE_ONLY, key_mapper.nbytes)
+
+    tile_match_kernel = program.tile_match
+    tile_match_kernel(queue, np.arange(tile_dims_ng[0] * tile_dims_ng[1]).shape, None,
+                        tiles_touched_g, depths_g, tile_dims_ng_g, radiis_g,
+                        key_mapper_g)
+    
+    cl.enqueue_copy(queue, key_mapper, key_mapper_g)
 
     return key_mapper
 
@@ -29,6 +36,7 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
     d_opacity = np.zeros(num_gaus)
 
     other_data = np.empty(6, dtype=np.int32)
+    other_data[0] = num_gaus
     other_data[1] = 1 if (training) else 0
     other_data[4] = result_size[0]
     other_data[5] = result_size[1]
@@ -46,23 +54,25 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
     d_conics_g = cl.Buffer(ctx, mf.WRITE_ONLY, d_conics.nbytes)
     d_opacity_g = cl.Buffer(ctx, mf.WRITE_ONLY, d_opacity.nbytes)
 
+    sort = RadixSort(ctx, "ulong *ary", key_expr="ary[i]", sort_arg_names=["ary"], key_dtype=np.uint64)
+
     hor_tiles = math.ceil(result_size[0] / tile_size)
     ver_tiles = math.ceil(result_size[1] / tile_size)
 
     for i in range(hor_tiles):
         for j in range(ver_tiles):
-            depth_sorted = np.asarray(sorted(mapped_keys[i][j].items()), dtype=np.int32)
-            if (len(depth_sorted > 0)):
-                depth_sorted_gaus = np.ascontiguousarray(depth_sorted[...,1]) # flatten the dictionary to a depth-sorted 1D array
-                other_data[0] = len(depth_sorted_gaus)
-            else:
-                depth_sorted_gaus = np.zeros(1, dtype=np.int32)
-                other_data[0] = 0
-       
+            t0 = time.perf_counter()
+            keys = cl.array.Array(queue, num_gaus, dtype=np.uint64)
+            keys.set(mapped_keys[i,j], queue=queue)
+            (keys_sorted,), evt = sort(keys, key_bits=32)
+            gaus_stack = keys_sorted.get()
+
+
             other_data[2] = i * tile_size
             other_data[3] = j * tile_size
+            t1 = time.perf_counter()
 
-            gaus_stack_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=depth_sorted_gaus)
+            gaus_stack_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=gaus_stack)
             other_data_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=other_data)
 
             rast_kernel = program.rasterize
@@ -79,7 +89,7 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             
             image[i*tile_size:last_x, j*tile_size:last_y] = copy.deepcopy(image_chunk[:chunk_x,:chunk_y])
 
-            #print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
+            print('%3.2f percent done with rasterization' % ((100.0 * (i * ver_tiles + j)) / (hor_tiles * ver_tiles)), end='\r')
     if(training):
         cl.enqueue_copy(queue, d_colors, d_colors_g)
         cl.enqueue_copy(queue, d_centers, d_centers_g)
