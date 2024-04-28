@@ -63,8 +63,8 @@ def forward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians, res
 
         # snipe gaussians too close to the camera
         view_adj_center = view_mat @ center
-        #if(view_adj_center[2] <= .2 or math.isnan(view_adj_center[2]) ):
-        if(math.isnan(view_adj_center[2]) ):
+        if(view_adj_center[2] <= .2 or math.isnan(view_adj_center[2]) ):
+        #if(math.isnan(view_adj_center[2]) ):
             continue
 
         # maximize fidelity of the depth for key sorting
@@ -130,8 +130,6 @@ def forward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians, res
 
         print('%3.2f percent done with forward_pass' % ((100.0 * i) / len(gaussians.center)), end='\r')
 
-    print()
-    print(num_nan)
     #mod_colors, clamped, mod_dirs = compute_color(ctx, queue, program, gaussians.degrees, gaussians.center, camera_t, gaussians.spherical_harmonics)
 
     if(training):
