@@ -2,3 +2,4 @@ output/*
 input/*
 shared.so
 __pycache__/*
+debug.log

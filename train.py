@@ -6,43 +6,16 @@ from backward_pass import backward_pass
 from rasterization import rasterize, c_rasterize, gpu_rasterize, match_gaus_to_tiles
 from PIL import Image
 from functions import *
-
-class GaussianSet():
-    def __init__(self, point_cloud_data):  
-        self.center = np.empty([len(point_cloud_data), 3])
-        self.color = np.empty([len(point_cloud_data), 3])         
-        self.spherical_harmonics = np.zeros([len(point_cloud_data), 16, 3])
-
-        i = 0
-        for point in point_cloud_data:
-            self.center[i] = point_cloud_data[point].xyz
-            #print(self.center[i])
-            self.color[i] = (point_cloud_data[point].rgb - .5) / 0.28209479177387814
-            self.spherical_harmonics[i, 0] = self.color[i]
-            i+=1 #bashed my head against the wall for like 10 minutes and it was all ur fault :(
-
-        # Get initial gaussian scaling based on initial point cloud clustering distances
-        distances = np.clip(knn_distances(self.center), a_min=.0000001, a_max=None)
-        self.scaling = np.repeat(np.log(distances), 3).reshape((len(point_cloud_data), 3)) 
-
-        self.rotation = np.full((len(point_cloud_data), 4), [0.0,0.0,0.0,1.0])
-        self.opacity = np.full(len(point_cloud_data), .1)
-
-        self.degrees = 0
-
-    def save(self, file_path):
-        np.savez(file_path,
-                     self.center, self.color, self.spherical_harmonics, self.scaling, self.rotation, self.opacity)
+from gaussian import GaussianSet
 
 
 def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, queue = None, program = None, iters=2000, result_size=[979,546], t0 = None):
     gaussians = GaussianSet(point_cloud_data)
 
-    
     image_subset = random.sample(list(images.items()), math.floor(len(images) * .2))
     
     print("setup complete in {time}s".format(time=time.perf_counter()-t0))
-    for i in range(iters):
+    for i in range(iters+1):
         t1 = time.perf_counter()
 
         image_id = random.randint(0, len(image_subset) - 1)
@@ -52,7 +25,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
         camera_r = quaternion.as_rotation_matrix(quaternion.as_quat_array(source_image.qvec))
         camera_t = source_image.tvec
         
-        centers, depths, colors, conics, clampeds, tiles_touched, radii, ws, ms, ts, covs_2d, covs_3d, dirs = forward_pass(chosen_camera, camera_r, camera_t, gaussians, result_size=result_size, training=True)
+        centers, depths, colors, conics, clampeds, tiles_touched, radii, ws, ms, ts, covs_2d, covs_3d, dirs = forward_pass(ctx, queue, program, chosen_camera, camera_r, camera_t, gaussians, result_size=result_size, training=True)
         print("forward pass complete in {time}s".format(time=time.perf_counter()-t1))
         t2 = time.perf_counter()
         
@@ -84,7 +57,7 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
 
         print("backwards training complete in {time}s".format(time=time.perf_counter()-t5))
         
-        print("pass {iter} completed in {time}s\n-----------------------".format(time=time.perf_counter()-t1, iter=i))
+        print("pass {iter} completed in {time}s\nloss = {loss}\n-----------------------".format(time=time.perf_counter()-t1, iter=i, loss=l1_loss))
         if(i % 50 == 0):
             Image.fromarray(pic1).save("output/test_run/pass_{iter}.jpg".format(iter=i))
         if(i % 100 == 0):
@@ -92,9 +65,3 @@ def train_model(cameras, images, point_cloud_data, learning_rates, ctx = None, q
 
 #image = c_rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
 #image = rasterize(centers, colors, gaussians.opacity, conics, key_mapper, result_size=result_size)
-
-# Credit to rfeinman on Github for implementation
-def knn_distances(points):
-    distances, inds = KDTree(points).query(points, k=4)
-    return (distances[:, 1:] ** 2).mean(1)
-

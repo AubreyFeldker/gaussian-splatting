@@ -2,6 +2,7 @@ import numpy as np, quaternion
 import math
 from functions import *
 from ctypes import c_int32
+import pyopencl as cl
 
 #SH coefficients
 SH_C0 = 0.28209479177387814
@@ -21,7 +22,7 @@ SH_C3 = np.array([-0.5900435899266435,
 
 # can definitely multiproc this later
 # update: lol. lmao
-def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], tile_size=16, training=True):
+def forward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians, result_size=[979,546], tile_size=16, training=True):
     gaus_num = len(gaussians.center)
     # saving these values prevents having to recompute them during the backwards pass
     if(training):
@@ -31,7 +32,7 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         mod_3d_covs = np.zeros([gaus_num, 6])
         mod_Ws = np.zeros_like(mod_3d_covs)
     mod_dirs = np.zeros([gaus_num, 3])
-    mod_conics = np.zeros_like(mod_2d_covs)
+    mod_conics = np.zeros([gaus_num, 3])
     mod_centers = np.zeros([gaus_num, 2])
     mod_depths = np.zeros(gaus_num,dtype=np.int32)
     mod_colors = np.zeros([gaus_num, 3])
@@ -49,6 +50,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
     activated_scales = np.exp(gaussians.scaling)
 
+    num_nan = 0
+
     # this is where we get the covariance & center matrices for each gaussian in coordinance with where the camera is pointing to
     # as well as perform the projection onto them
     for i in range(len(gaussians.center)):
@@ -60,7 +63,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
 
         # snipe gaussians too close to the camera
         view_adj_center = view_mat @ center
-        if(view_adj_center[2] <= .2 or math.isnan(view_adj_center[2]) ):
+        #if(view_adj_center[2] <= .2 or math.isnan(view_adj_center[2]) ):
+        if(math.isnan(view_adj_center[2]) ):
             continue
 
         # maximize fidelity of the depth for key sorting
@@ -68,8 +72,8 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         mod_depths[i] = (d if (-2 ** 31 <= d < 2 ** 31) else c_int32(d).value)
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
-        rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i] / np.linalg.norm(gaussians.rotation[i], np.inf)))
-        M = rot_matrix @ np.asarray([[activated_scales[i,0],1,1],[1,activated_scales[i,1],1],[1,1,activated_scales[i,2]]])
+        rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))
+        M = rot_matrix @ (np.asarray([[activated_scales[i,0],1,1],[1,activated_scales[i,1],1],[1,1,activated_scales[i,2]]]) * .0020833)
         cov_matrix =  M @ np.transpose(M)
 
         t = view_mat @ np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
@@ -103,7 +107,11 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         middle = .5 * (cov_2d_vals[0] + cov_2d_vals[2])
         lambda1 = middle + math.sqrt(max(.1, middle * middle - det))
         lambda2 = middle - math.sqrt(max(.1, middle * middle - det))
-        radius = math.ceil(3 * math.sqrt(max(lambda1, lambda2)))
+        val = np.sqrt(max(lambda1, lambda2, 0))
+        if (np.isnan(val)):
+            num_nan+=1
+            continue
+        radius = math.ceil(3 * val)
 
         center_on_screen = [get_pixel(center[0], result_size[0]), get_pixel(center[1], result_size[1])]
         tiles_touched[i] = np.array([
@@ -116,23 +124,59 @@ def forward_pass(camera, camera_r, camera_t, gaussians, result_size=[979,546], t
         if (center_on_screen[0] + radius < 0 or center_on_screen[0] - radius > result_size[0] or center_on_screen[1] + radius < 0 or center_on_screen[1] - radius > result_size[1]):
             continue
 
-        mod_colors[i], clamped[i], mod_dirs[i] = compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
-
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
+        mod_colors[i], clamped[i], mod_dirs[i] = py_compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
 
-        #print('%3.2f percent done with forward_pass' % ((100.0 * i) / len(gaussians.center)), end='\r')
+        print('%3.2f percent done with forward_pass' % ((100.0 * i) / len(gaussians.center)), end='\r')
+
+    print()
+    print(num_nan)
+    #mod_colors, clamped, mod_dirs = compute_color(ctx, queue, program, gaussians.degrees, gaussians.center, camera_t, gaussians.spherical_harmonics)
 
     if(training):
         return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii, mod_Ws, mod_Ms, mod_Ts, mod_2d_covs, mod_3d_covs, mod_dirs
     else:
-        return mod_centers, mod_depths, mod_colors, mod_conics, clamped, tiles_touched, radii
+        return mod_centers, mod_depths, mod_colors, mod_conics, tiles_touched, radii
     
-def compute_color(degrees, center, camera_position, sh):
+def compute_color(ctx, queue, program, degrees, centers, camera_position, shs):
+    #Normalized direction to gaus center
+    dirs = (centers - camera_position).astype(np.float32)
+    for i in range(len(centers)):
+        dirs[i] /= np.linalg.norm(dirs[i]) 
+
+    colors = np.empty_like(centers, dtype=np.float32)
+    clampeds = np.zeros_like(centers, dtype='bool')
+    dgr = np.asarray(degrees)
+
+    mf = cl.mem_flags
+    dirs_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=dirs.flatten())
+    shs_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=shs.flatten())
+    sh2_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=SH_C2)
+    sh3_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=SH_C3)
+    dgr_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=dgr)
+
+    colors_g = cl.Buffer(ctx, mf.WRITE_ONLY, colors.nbytes)
+    clampeds_g = cl.Buffer(ctx, mf.WRITE_ONLY, clampeds.nbytes)
+
+    color_kernel = program.compute_color
+    color_kernel(queue, np.empty([len(centers)]).shape, None,
+              dirs_g, shs_g, sh2_g, sh3_g, dgr_g,
+              colors_g, clampeds_g)
+    
+    cl.enqueue_copy(queue, colors, colors_g)
+    cl.enqueue_copy(queue, clampeds, clampeds_g)
+
+    return colors.astype(np.float64), clampeds, dirs.astype(np.float64)
+
+def py_compute_color(degrees, center, camera_position, sh):
     #Normalized direction to gaus center
     direction = center - camera_position
     direction = direction/np.linalg.norm(direction) 
+    sh = np.transpose(sh)
     result = SH_C0 * sh[0]
+
+    
 
     if (degrees > 0):
         x = direction[0]
@@ -163,7 +207,7 @@ def compute_color(degrees, center, camera_position, sh):
                 SH_C3[5] * z * (xx - yy) * sh[14] +
                 SH_C3[6] * x * (xx - 3.0 * yy) * sh[15])
 
-    result += np.array([.5,.5,.5])
+    result += .5
 
     clamped = np.zeros(3, dtype=bool)
 
@@ -173,5 +217,3 @@ def compute_color(degrees, center, camera_position, sh):
             clamped[i] = True
 
     return result, clamped, direction
-
-

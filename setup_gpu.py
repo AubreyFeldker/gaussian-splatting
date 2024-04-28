@@ -49,8 +49,8 @@ def setup_gpu():
         __global double *image_chunk, __global double *b_colors, __global double *b_centers, __global double *b_conics, __global double *b_opacities)
     {
         int gid = get_global_id(0);
-        const int loc_x = gid / 16;
-        const int loc_y = gid % 16;
+        const int loc_x = gid / 32;
+        const int loc_y = gid % 32;
         const int x = other_data[2] + loc_x;
         const int y = other_data[3] + loc_y;
 
@@ -303,6 +303,70 @@ def setup_gpu():
                                     d_col_y.x * d_colors[g].x + d_col_y.y * d_colors[g].y + d_col_y.z * d_colors[g].z,
                                     d_col_z.x * d_colors[g].x + d_col_z.y * d_colors[g].y + d_col_z.z * d_colors[g].z);
         d_means[g] += dnormvdv(dirs[g], d_dir);
+    }
+
+    __kernel void compute_color(
+        __global const float3 *dirs, __global const float3 *shs, __global const float *SH_C2, __global const float *SH_C3, __global const int *degree,
+        __global float3 *colors, __global bool *clampeds)
+    {
+        const float SH_C0 = 0.28209479177387814;
+        const float SH_C1 = 0.4886025119029199;
+
+        int gid = get_global_id(0);
+        int s = gid*16;
+        int degrees = degree[0];
+
+        float3 result = SH_C0 * shs[s];
+
+        if (degrees > 0) {
+            float x = dirs[gid].x;
+            float y = dirs[gid].y;
+            float z = dirs[gid].z;
+            result += (-y * shs[s+1] + z * shs[s+2] - x * shs[s+3]) * SH_C1;
+
+            if (degrees > 1) {
+                float xx = x * x;
+                float yy = y * y;
+                float zz = z * z;
+                float xy = x * y;
+                float yz = y * z;
+                float xz = x * z;
+
+                result += (SH_C2[0] * xy * shs[s+4] +
+                        SH_C2[1] * yz * shs[s+5] +
+                        SH_C2[2] * (2.0f * zz - xx - yy) * shs[s+6] +
+                        SH_C2[3] * xz * shs[s+7] +
+                        SH_C2[4] * (xx - yy) * shs[s+8]);
+
+                if (degrees > 2) {
+                    result += (SH_C3[0] * y * (3.0f * xx - yy) * shs[s+9] +
+                    SH_C3[1] * xy * z * shs[s+10] +
+                    SH_C3[2] * y * (4.0f * zz - xx - yy) * shs[s+11] +
+                    SH_C3[3] * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * shs[s+12]+
+                    SH_C3[4] * x * (4.0f * zz - xx - yy) * shs[s+13] +
+                    SH_C3[5] * z * (xx - yy) * shs[s+14] +
+                    SH_C3[6] * x * (xx - 3.0f * yy) * shs[s+15]);
+                }
+            }
+        }
+
+        result += .5f;
+
+        if (result.x < 0) {
+            result.x = 0;
+            clampeds[gid*3  ] = true;
+        }
+        if (result.y < 0) {
+            result.y = 0;
+            clampeds[gid*3+1] = true;
+        }
+        if (result.z < 0) {
+            result.z = 0;
+            clampeds[gid*3+2] = true;
+        }
+
+        colors[gid] = result;
+
     }
     """).build()
 
