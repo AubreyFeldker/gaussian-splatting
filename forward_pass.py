@@ -40,45 +40,44 @@ def forward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians, res
     radii = np.zeros(gaus_num)
     tiles_touched = np.zeros([gaus_num, 2, 2], dtype=np.int32)
 
-    r = np.transpose(camera_r)
-    t = camera_t
-
     fov_x = focal_to_fov(camera.params[0], camera.width)
-    fov_y = focal_to_fov(camera.params[1], camera.height)
+    fov_y = focal_to_fov(camera.params[0], camera.height)
     proj_mat = get_projection_matrix(fov_x, fov_y)
-    view_mat = get_view_matrix(r, t)
+    view_mat = get_view_matrix(camera_r, camera_t)
+    cam_pos = np.transpose(camera_r) @ camera_t
 
     activated_scales = np.exp(gaussians.scaling)
-
-    num_nan = 0
+    scale_mod = (1.0 / result_size[1]) * 3
+    #activated_scales = gaussians.scaling
+    #scale_mod = 1.0
 
     # this is where we get the covariance & center matrices for each gaussian in coordinance with where the camera is pointing to
     # as well as perform the projection onto them
     for i in range(len(gaussians.center)):
         #view_changed_center = np.pad((r @ gaussians.center[i]) + t, (0,1), 'constant', constant_values=(1.0,))
-        view_changed_center = np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
-        proj_center = proj_mat @ view_changed_center
+        orig_center = np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
+        proj_center = proj_mat @ orig_center
         mod_w = 1.0 / (proj_center[3] + .00000001)
-        center = proj_center / mod_w
+        center = proj_center * mod_w
 
         # snipe gaussians too close to the camera
-        view_adj_center = view_mat @ center
-        if(view_adj_center[2] <= .2 or math.isnan(view_adj_center[2]) ):
+        view_adj_center = view_mat @ orig_center
+        if(view_adj_center[2] <= 2 or math.isnan(view_adj_center[2]) ):
         #if(math.isnan(view_adj_center[2]) ):
             continue
 
         # maximize fidelity of the depth for key sorting
-        d = int(view_adj_center[2]*100000)
+        d = int(view_adj_center[2]*1000)
         mod_depths[i] = (d if (-2 ** 31 <= d < 2 ** 31) else c_int32(d).value)
 
         #compute the 2D (splatted) covariance matrices from the rotation mat & scaling vector
-        rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]))
-        M = rot_matrix @ (np.asarray([[activated_scales[i,0],1,1],[1,activated_scales[i,1],1],[1,1,activated_scales[i,2]]]) * .0020833)
+        rot_matrix = quaternion.as_rotation_matrix(quaternion.as_quat_array(gaussians.rotation[i]/np.linalg.norm(gaussians.rotation[i])))
+        M = rot_matrix @ (np.asarray([[activated_scales[i,0],1,1],[1,activated_scales[i,1],1],[1,1,activated_scales[i,2]]]) * scale_mod)
         cov_matrix =  M @ np.transpose(M)
 
         t = view_mat @ np.pad(gaussians.center[i], (0,1), 'constant', constant_values=(1.0,))
         j_matrix = get_jacobian_matrix(fov_x, fov_y, camera.params[0], camera.params[1], t)
-        W = j_matrix @ r
+        W = j_matrix @ np.transpose(camera_r)
         cov_2d = W @ cov_matrix @ np.transpose(W)
         cov_2d_vals = [cov_2d[0,0], cov_2d[0,1],cov_2d[1,1]]
 
@@ -109,7 +108,6 @@ def forward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians, res
         lambda2 = middle - math.sqrt(max(.1, middle * middle - det))
         val = np.sqrt(max(lambda1, lambda2, 0))
         if (np.isnan(val)):
-            num_nan+=1
             continue
         radius = math.ceil(3 * val)
 
@@ -126,7 +124,7 @@ def forward_pass(ctx, queue, program, camera, camera_r, camera_t, gaussians, res
 
         radii[i] = radius
         mod_centers[i] = center_on_screen # screen-based center of the gaussian
-        mod_colors[i], clamped[i], mod_dirs[i] = py_compute_color(gaussians.degrees, gaussians.center[i], camera_t, gaussians.spherical_harmonics[i])
+        mod_colors[i], clamped[i], mod_dirs[i] = py_compute_color(gaussians.degrees, gaussians.center[i], cam_pos, gaussians.spherical_harmonics[i])
 
         print('%3.2f percent done with forward_pass' % ((100.0 * i) / len(gaussians.center)), end='\r')
 

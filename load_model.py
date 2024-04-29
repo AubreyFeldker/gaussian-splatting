@@ -1,5 +1,5 @@
 from plyfile import PlyData
-import numpy as np, os, math
+import numpy as np, os
 import colmap.read_write_model as colmap_rw 
 from gaussian import GaussianSet
 from setup_gpu import setup_gpu
@@ -45,10 +45,10 @@ os.environ['PYOPENCL_COMPILER_OUTPUT'] = '0'
 os.environ['PYOPENCL_CTX'] = '0'
 ctx, queue, program = setup_gpu()
 
-gaussians = load_data('./input/truck/point_cloud/iteration_7000/point_cloud.ply')
+gaussians = load_data('./input/train/point_cloud/iteration_7000/point_cloud.ply')
 
-cameras, images, point_cloud = colmap_rw.read_model("./input/sparse/0", ".bin")
+cameras, images, point_cloud = colmap_rw.read_model("./input/0", ".bin")
 source_image = list(images.items())[0][1]
 chosen_camera = cameras[source_image.camera_id]
 
-gaussians.rasterize(chosen_camera, source_image, ctx, queue, program, "./output/complete_raster_test", result_size=[480, 288])
+gaussians.rasterize(chosen_camera, source_image, ctx, queue, program, "./output/train_complete_raster_test_251", result_size=[979,546])

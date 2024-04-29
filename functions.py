@@ -22,19 +22,19 @@ def get_projection_matrix(fov_x, fov_y, z_near = .01, z_far = 100):
     return proj
 
 def get_jacobian_matrix(fov_x, fov_y, focal_x, focal_y, center):
-    lim_x = 1.3 * math.tan(fov_x/2)
-    lim_y = 1.3 * math.tan(fov_y/2)
+    lim_x = 1.3 * math.tan(fov_x*.5)
+    lim_y = 1.3 * math.tan(fov_y*.5)
     mathed_center = np.array([min(lim_x, max(-lim_x, center[0]/center[2])) * center[2],
                               min(lim_y, max(-lim_y, center[1]/center[2])) * center[2], center[2]])
 
-    return np.matrix([
+    return np.transpose(np.matrix([
         [focal_x / mathed_center[2], 0.0, -(focal_x * mathed_center[0]) / (mathed_center[2] * mathed_center[2])],
         [0.0, focal_y / mathed_center[2], -(focal_y * mathed_center[1]) / (mathed_center[2] * mathed_center[2])],
         [0,0,0]
-    ])
+    ]))
 
 def focal_to_fov(focal_len, pixels):
-    return 2 * math.atan(pixels / (2*focal_len))
+    return 2.0 * math.atan(pixels / (2.0*focal_len))
 def get_pixel(num, scale):
     return ((num+1.0) * scale - 1.0) * .5
 

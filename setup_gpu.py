@@ -62,7 +62,6 @@ def setup_gpu():
         }
         
         int contributor = 0;
-        int first_contributor = other_data[0];
         int gaus;
 
         double T = 1.0;
@@ -70,14 +69,11 @@ def setup_gpu():
 
         for (int i = 0; i < other_data[0]; i++) {
             contributor += 1;
-            if(gaus_stack[i] << 32 == 0)
-                continue;
 
             gaus = gaus_stack[i] >> 32;
-            first_contributor = i;
 
-            dist_x = centers[gaus*2] - x + .5;
-            dist_y = centers[gaus*2+1] - y + .5;
+            dist_x = centers[gaus*2] - x;
+            dist_y = centers[gaus*2+1] - y;
 
             power = -.5 * (conics[gaus*3] * dist_x * dist_x + conics[gaus*3+2] * dist_y * dist_y) - conics[gaus*3+1] * dist_x * dist_y;
 
@@ -98,6 +94,7 @@ def setup_gpu():
             T = test_T;
         }
 
+        //printf("%d %d %f",x, y, T);
         for(int ch = 0; ch < 3; ch++) {
             image_chunk[gid*3+ch] += background_color[ch] * T;
         }
@@ -116,7 +113,7 @@ def setup_gpu():
             dL_dpixel = image_chunk[gid*3+ch];
         }
 
-        for(int j = contributor; j >= first_contributor; j--) {
+        for(int j = contributor; j >= 0; j--) {
             gaus = gaus_stack[j];
 
             dist_x = centers[gaus*2] - x + .5;

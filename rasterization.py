@@ -69,7 +69,6 @@ def gpu_rasterize(ctx, queue, program, centers: np.ndarray, colors: np.ndarray, 
             keys.set(np_keys, queue=queue)
             (keys_sorted,), evt = sort(keys, key_bits=32)
             gaus_stack = keys_sorted.get()
-
             other_data[0] = len(gaus_stack)
             if(len(gaus_stack) == 0):
                 gaus_stack = np.ones(1, dtype=np.uint64)

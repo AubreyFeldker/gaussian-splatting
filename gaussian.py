@@ -49,7 +49,7 @@ class GaussianSet():
         t3 = time.perf_counter()
         image = gpu_rasterize(ctx, queue, program, centers, colors, sigmoid(self.opacity), conics, key_mapper, result_size=result_size, training=False, tile_size=32)
         print("rasterization complete in {time}s".format(time=time.perf_counter()-t3))
-        Image.fromarray(np.rot90(np.swapaxes(np.uint8(image*255),0,1),2)).save("{output}.jpg".format(output=file_output))
+        Image.fromarray(np.swapaxes(np.uint8(image*255),0,1)).save("{output}.jpg".format(output=file_output))
 
     def save(self, file_path):
         np.savez(file_path,
